@@ -8,13 +8,19 @@ from __future__ import annotations
 import ctypes
 import json
 import tkinter as tk
+import tkinter.font as tkfont
 
 from .meter import VIEW_ALL, VIEW_PARTY, VIEW_SELF, Meter, Snapshot
 
 # Olculer 96 DPI icin; ekran olcegine gore carpilir.
-WIDTH = 240
+WIDTH = 290
 ROW_H = 20
 HEADER_H = 74
+COLUMNS_H = 14
+# Satir sutunlarinin sag kenarlari: toplam hasar, DPS, yuzde.
+TOTAL_X = WIDTH - 112
+DPS_X = WIDTH - 50
+SHARE_X = WIDTH - 9
 MAX_ROWS = 8
 BG = "#14161b"
 FG = "#e8e8e8"
@@ -82,6 +88,8 @@ class Overlay:
             pass
         self.root = tk.Tk()
         self.s = self.root.winfo_fpixels("1i") / 96.0
+        self._fonts = {bold: tkfont.Font(family=FONT, size=9, weight="bold" if bold else "normal")
+                       for bold in (False, True)}
         self.width = round(WIDTH * self.s)
         self.root.title("Hakari 秤")
         self.root.overrideredirect(True)
@@ -157,6 +165,16 @@ class Overlay:
             x * s, y * s, anchor=anchor, text=text, fill=color, width=width and width * s,
             font=(FONT, size, "bold" if bold else "normal"))
 
+    def _fit(self, text: str, max_width: float, bold: bool) -> str:
+        """Ismi piksel genisligine gore kisaltir (Korece/Japonca karakterler daha genis)."""
+        font = self._fonts[bold]
+        limit = max_width * self.s
+        if font.measure(text) <= limit:
+            return text
+        while text and font.measure(text + "…") > limit:
+            text = text[:-1]
+        return text + "…"
+
     def _draw(self, snap: Snapshot) -> None:
         c, s = self.canvas, self.s
         c.delete("all")
@@ -193,6 +211,10 @@ class Overlay:
         rows = snap.rows if (view != VIEW_SELF or snap.self_id is None) else []
         self._rows_hitbox = []
         y = HEADER_H
+        if rows:
+            for x, label in ((TOTAL_X, "Toplam"), (DPS_X, "DPS"), (SHARE_X, "%")):
+                self._text(x, y + COLUMNS_H / 2, label, 7, DIM, anchor="e")
+            y += COLUMNS_H
         top_total = rows[0].total if rows else 1
         for r in rows:
             frac = r.total / top_total if top_total else 0
@@ -202,9 +224,12 @@ class Overlay:
             if r.is_self:  # kendi satirimizi kenarlikla belirt
                 c.create_rectangle(4 * s, (y + 2) * s, (WIDTH - 4) * s, (y + ROW_H - 2) * s,
                                    outline=ACCENT, width=max(1, round(s)))
-            self._text(9, y + ROW_H / 2, r.name[:14], 9, anchor="w", bold=r.is_self)
-            self._text(WIDTH - 9, y + ROW_H / 2, f"{fmt_num(r.dps)}/s   {r.share * 100:.0f}%", 9,
-                       anchor="e")
+            mid = y + ROW_H / 2
+            self._text(9, mid, self._fit(r.name, TOTAL_X - 52, r.is_self), 9, anchor="w",
+                       bold=r.is_self)
+            self._text(TOTAL_X, mid, fmt_num(r.total), 9, anchor="e")
+            self._text(DPS_X, mid, fmt_num(r.dps), 9, anchor="e")
+            self._text(SHARE_X, mid, f"{r.share * 100:.0f}%", 9, anchor="e")
             self._rows_hitbox.append((y * s, (y + ROW_H) * s, r.source))
             y += ROW_H
 
