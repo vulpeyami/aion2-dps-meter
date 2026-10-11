@@ -24,10 +24,25 @@ Protokol bilgisi [Aion2Flow](https://github.com/cloris-chan/Aion2Flow)'dan (GPL-
 | Fare | İşlev |
 |---|---|
 | Sol tık + sürükle | Pencereyi taşı |
-| Sağ tık | Sıfırla / diğer oyuncuları gizle / çıkış |
+| Sağ tık | Görünüm (Sadece ben / Parti / Herkes), sıfırla, çıkış |
 | Satıra çift tık | "Bu benim" |
 
 15 saniye hasar gelmezse sayaç durur. Sonraki vuruşta yeni bir karşılaşma başlar.
+Görünüm seçimi ve pencere konumu `ayarlar.json`'a kaydedilir.
+
+**İsimler ve sınıflar:** Oyuncu isimleri, oyuncular görüş alanına girdiğinde ve parti/ittifak
+listesi geldiğinde okunur. Sınıf (çubuk rengi) isim paketinden ya da kullanılan skill'lerden
+anlaşılır; bu yüzden ismi henüz gelmemiş oyuncular da doğru renkte görünür.
+**Parti** görünümü parti listesi geldikten sonra dolar; partiye meter açıkken katılmak ya da
+bölge değiştirmek listeyi tazeler.
+
+| Renk | Sınıf | Renk | Sınıf |
+|---|---|---|---|
+| Turuncu | Gladiator | Kırmızı | Sorcerer |
+| Mavi | Templar | Turkuaz | Elementalist |
+| Mor | Assassin | Altın | Cleric |
+| Yeşil | Ranger | Açık yeşil | Chanter |
+| Pembe | Brawler | Gri | Bilinmiyor |
 
 ## "Oyundan paket gelmiyor" uyarısı
 Windows Güvenlik Duvarı ham sokete gelen paketleri engelliyor olabilir:
@@ -41,7 +56,7 @@ izin ver → `python.exe` için Özel ağ kutusunu işaretle. Yine olmazsa son �
 
 ## Bilinen eksikler
 - Pet/çağrı hasarı sahibine eklenmez, ayrı satır olarak görünür.
-- Diğer oyuncular isim yerine `#id` ile gösterilir.
+- İsim paketi gelmemiş oyuncular `#id` ile gösterilir (sınıf rengi yine doğrudur).
 - Oyun güncellemesi paket yapısını değiştirirse çözücünün güncellenmesi gerekir.
 
 ## Testler

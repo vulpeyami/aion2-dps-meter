@@ -6,22 +6,41 @@ Sol tik + surukle: tasi.  Sag tik: menu.  Bir satira cift tik: "bu benim".
 from __future__ import annotations
 
 import ctypes
+import json
 import tkinter as tk
 
-from .meter import Meter, Snapshot
+from .meter import VIEW_ALL, VIEW_PARTY, VIEW_SELF, Meter, Snapshot
 
 # Olculer 96 DPI icin; ekran olcegine gore carpilir.
 WIDTH = 240
 ROW_H = 20
 HEADER_H = 74
-MAX_ROWS = 6
+MAX_ROWS = 8
 BG = "#14161b"
 FG = "#e8e8e8"
 DIM = "#8a8f98"
 ACCENT = "#f0b43c"
-BAR = "#2f5fb0"
-BAR_SELF = "#b8741f"
 FONT = "Segoe UI"
+
+# Cubuk renkleri; ustlerindeki beyaz yazi okunacak kadar koyu.
+CLASS_COLORS = {
+    "gladiator": "#c0662a",
+    "templar": "#3a62b8",
+    "assassin": "#7d4bbf",
+    "ranger": "#2f8a4f",
+    "sorcerer": "#b8323f",
+    "elementalist": "#278a99",
+    "cleric": "#a88b22",
+    "chanter": "#6f9a2a",
+    "brawler": "#b5448a",
+}
+UNKNOWN_COLOR = "#4a5160"
+CLASS_NAMES = {
+    "gladiator": "Gladiator", "templar": "Templar", "assassin": "Assassin",
+    "ranger": "Ranger", "sorcerer": "Sorcerer", "elementalist": "Elementalist",
+    "cleric": "Cleric", "chanter": "Chanter", "brawler": "Brawler",
+}
+VIEW_LABELS = {VIEW_SELF: "Sadece ben", VIEW_PARTY: "Parti", VIEW_ALL: "Herkes"}
 
 
 def fmt_num(v: float) -> str:
@@ -37,12 +56,24 @@ def fmt_time(sec: float) -> str:
     return f"{sec // 60:02d}:{sec % 60:02d}"
 
 
+def load_settings(path: str | None) -> dict:
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 class Overlay:
-    def __init__(self, meter: Meter, status_fn, on_quit):
+    def __init__(self, meter: Meter, status_fn, on_quit, settings_path: str | None = None):
         self.meter = meter
         self.status_fn = status_fn
         self.on_quit = on_quit
-        self.show_others = True
+        self.settings_path = settings_path
+        settings = load_settings(settings_path)
         self._rows_hitbox: list[tuple[float, float, int]] = []
 
         try:  # yuksek DPI ekranlarda bulanik yazi olmasin
@@ -57,19 +88,25 @@ class Overlay:
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.88)
         self.root.configure(bg=BG)
-        self.root.geometry(f"{self.width}x{round(HEADER_H * self.s)}+40+200")
+        x, y = settings.get("x", 40), settings.get("y", 200)
+        self.root.geometry(f"{self.width}x{round(HEADER_H * self.s)}+{int(x)}+{int(y)}")
 
         self.canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
 
+        view = settings.get("view", VIEW_PARTY)
+        self.view = tk.StringVar(value=view if view in VIEW_LABELS else VIEW_PARTY)
         self.menu = tk.Menu(self.root, tearoff=0)
-        self.menu.add_command(label="Sıfırla", command=self.meter.reset)
-        self.menu.add_command(label="Diğer oyuncuları gizle/göster", command=self._toggle_others)
+        for key, label in VIEW_LABELS.items():
+            self.menu.add_radiobutton(label=label, value=key, variable=self.view,
+                                      command=self._save_settings)
         self.menu.add_separator()
+        self.menu.add_command(label="Sıfırla", command=self.meter.reset)
         self.menu.add_command(label="Çıkış", command=self._quit)
 
         self.canvas.bind("<ButtonPress-1>", self._drag_start)
         self.canvas.bind("<B1-Motion>", self._drag_move)
+        self.canvas.bind("<ButtonRelease-1>", lambda e: self._save_settings())
         self.canvas.bind("<Button-3>", lambda e: self.menu.tk_popup(e.x_root, e.y_root))
         self.canvas.bind("<Double-Button-1>", self._on_double_click)
         self._drag = (0, 0)
@@ -80,11 +117,19 @@ class Overlay:
         self.root.mainloop()
 
     def _quit(self) -> None:
+        self._save_settings()
         self.on_quit()
         self.root.destroy()
 
-    def _toggle_others(self) -> None:
-        self.show_others = not self.show_others
+    def _save_settings(self) -> None:
+        if not self.settings_path:
+            return
+        data = {"view": self.view.get(), "x": self.root.winfo_x(), "y": self.root.winfo_y()}
+        try:
+            with open(self.settings_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except OSError:
+            pass
 
     def _drag_start(self, e) -> None:
         self._drag = (e.x, e.y)
@@ -102,7 +147,7 @@ class Overlay:
 
     def _tick(self) -> None:
         try:
-            self._draw(self.meter.snapshot(max_rows=MAX_ROWS))
+            self._draw(self.meter.snapshot(max_rows=MAX_ROWS, view=self.view.get()))
         finally:
             self.root.after(250, self._tick)
 
@@ -115,8 +160,12 @@ class Overlay:
     def _draw(self, snap: Snapshot) -> None:
         c, s = self.canvas, self.s
         c.delete("all")
+        view = self.view.get()
 
-        self._text(8, 5, "AION2 DPS", 8, DIM, bold=True)
+        title = f"AION2 DPS  ·  {VIEW_LABELS[view]}"
+        if view == VIEW_PARTY and not snap.in_group:
+            title += " (parti yok)"
+        self._text(8, 5, title, 8, DIM, bold=True)
         timer = fmt_time(snap.duration) if snap.duration else "--:--"
         self._text(WIDTH - 8, 5, f"{'●' if snap.active else '○'} {timer}", 8,
                    ACCENT if snap.active else DIM, anchor="ne")
@@ -124,10 +173,12 @@ class Overlay:
         me = snap.self_row
         if me is not None:
             big = self._text(8, 18, fmt_num(me.dps), 20, bold=True)
-            x1, _, x2, y2 = c.bbox(big)
+            _, _, x2, y2 = c.bbox(big)
             c.create_text(x2 + 4 * s, y2 - 8 * s, anchor="sw", text="DPS", fill=DIM,
                           font=(FONT, 9))
-            self._text(8, 54, f"Toplam {fmt_num(me.total)}   •   Krit %{me.crit_rate * 100:.0f}", 8, DIM)
+            cls = f"   •   {CLASS_NAMES[me.cls]}" if me.cls else ""
+            self._text(8, 54, f"Toplam {fmt_num(me.total)}   •   Krit %{me.crit_rate * 100:.0f}{cls}",
+                       8, DIM)
         else:
             status = self.status_fn()
             if not status.startswith("Dinleniyor"):
@@ -138,16 +189,20 @@ class Overlay:
                 hint = "Hasar bekleniyor..."
             self._text(8, 24, hint, 9, DIM, width=WIDTH - 16)
 
-        # Karakter bilinmiyorsa liste her zaman gorunur ki cift tikla secilebilsin.
-        rows = snap.rows if (self.show_others or snap.self_id is None) else []
+        # Sadece ben gorunumunde liste yok; buyuk rakam yeterli.
+        rows = snap.rows if (view != VIEW_SELF or snap.self_id is None) else []
         self._rows_hitbox = []
         y = HEADER_H
         top_total = rows[0].total if rows else 1
         for r in rows:
             frac = r.total / top_total if top_total else 0
+            color = CLASS_COLORS.get(r.cls, UNKNOWN_COLOR)
             c.create_rectangle(4 * s, (y + 2) * s, (4 + (WIDTH - 8) * frac) * s, (y + ROW_H - 2) * s,
-                               fill=BAR_SELF if r.is_self else BAR, width=0)
-            self._text(9, y + ROW_H / 2, r.name[:16], 9, anchor="w", bold=r.is_self)
+                               fill=color, width=0)
+            if r.is_self:  # kendi satirimizi kenarlikla belirt
+                c.create_rectangle(4 * s, (y + 2) * s, (WIDTH - 4) * s, (y + ROW_H - 2) * s,
+                                   outline=ACCENT, width=max(1, round(s)))
+            self._text(9, y + ROW_H / 2, r.name[:14], 9, anchor="w", bold=r.is_self)
             self._text(WIDTH - 9, y + ROW_H / 2, f"{fmt_num(r.dps)}/s   {r.share * 100:.0f}%", 9,
                        anchor="e")
             self._rows_hitbox.append((y * s, (y + ROW_H) * s, r.source))

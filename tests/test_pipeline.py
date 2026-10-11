@@ -226,8 +226,8 @@ class MeterTests(unittest.TestCase):
             t[0] = i
             m.add_hit(parse_damage(damage_payload(500, 9000, 1000)))
             m.add_hit(parse_damage(damage_payload(501, 9000, 500)))
-            m.add_hit(parse_damage(damage_payload(9000, 500, 300)))  # canavar bize vuruyor
-        snap = m.snapshot()
+            m.add_hit(parse_damage(damage_payload(9000, 500, 300, skill=2000000)))  # canavar bize vuruyor
+        snap = m.snapshot(view="herkes")
         self.assertEqual([r.source for r in snap.rows], [500, 501])
         self.assertEqual(snap.self_row.total, 10000)
         self.assertAlmostEqual(snap.self_row.dps, 10000 / 9)

@@ -239,16 +239,252 @@ def parse_own_nickname(p):
         return None
     if r.varint() is None or r.byte() not in (0x37, 0x3F):
         return None
-    name_len = r.byte()
-    if name_len is None or not 1 <= name_len <= 48 or r.remaining < name_len:
+    name = read_name(p, r.off)
+    return (player_id, name[0]) if name else None
+
+
+# --- Sinif bilgisi ------------------------------------------------------------
+
+CLASSES = ("gladiator", "templar", "assassin", "ranger", "sorcerer",
+           "elementalist", "cleric", "chanter", "brawler")
+
+# Oyuncu skill kodlarinin milyonlar basamagi sinifi verir (11410008 -> 11 -> gladiator).
+_SKILL_CLASS = {11: "gladiator", 12: "templar", 13: "assassin", 14: "ranger", 15: "sorcerer",
+                16: "elementalist", 17: "cleric", 18: "chanter", 19: "brawler"}
+
+# 0x4536 icindeki sinif kodu araliklari.
+_CODE_CLASS = ((5, 8, "gladiator"), (9, 12, "templar"), (13, 16, "ranger"), (17, 20, "assassin"),
+               (21, 24, "elementalist"), (25, 28, "sorcerer"), (29, 32, "cleric"),
+               (33, 36, "chanter"), (45, 48, "brawler"))
+
+
+def class_from_skill(skill: int) -> str | None:
+    return _SKILL_CLASS.get(skill // 1_000_000)
+
+
+def class_from_code(code: int) -> str | None:
+    for low, high, name in _CODE_CLASS:
+        if low <= code <= high:
+            return name
+    return None
+
+
+# --- Isimler -----------------------------------------------------------------
+
+MAX_NAME_BYTES = 72
+
+
+def read_name(p, off: int):
+    """[1 bayt uzunluk][UTF-8 isim] -> (isim, bitis_ofseti) ya da None."""
+    if off >= len(p):
+        return None
+    n = p[off]
+    if not 1 <= n <= MAX_NAME_BYTES or off + 1 + n > len(p):
         return None
     try:
-        name = bytes(p[r.off:r.off + name_len]).decode("utf-8")
+        name = bytes(p[off + 1:off + 1 + n]).decode("utf-8")
     except UnicodeDecodeError:
         return None
-    if not name or not all(ch.isalnum() for ch in name):
+    if len(name) < 2 or not all(ch.isalnum() for ch in name):
         return None
-    return player_id, name
+    return name, off + 1 + n
+
+
+def _u16(p, off: int) -> int:
+    return p[off] | (p[off + 1] << 8)
+
+
+def _i32(p, off: int) -> int:
+    return int.from_bytes(p[off:off + 4], "little", signed=True)
+
+
+def _is_server_id(v: int) -> bool:
+    return 1000 <= v <= 2999
+
+
+def parse_nickname_048d(p):
+    """0x048D: gorus alanindaki oyuncu -> (id, isim)."""
+    if len(p) < 11 or p[0] != 0x04 or p[1] != 0x8D:
+        return None
+    r = read_varint(p, 9)
+    if r is None or r[0] <= 0:
+        return None
+    pid, off = r[0], 9 + r[1]
+    if off + 2 <= len(p) and _is_server_id(_u16(p, off)):
+        name = read_name(p, off + 2)
+        if name:
+            return pid, name[0]
+    name = read_name(p, off)
+    return (pid, name[0]) if name else None
+
+
+def parse_pc_metadata_4536(p):
+    """0x4536: oyuncu bilgisi -> (id, isim, sinif) ya da None."""
+    if len(p) < 4 or p[0] != 0x45 or p[1] != 0x36:
+        return None
+    r = _Reader(p, 2)
+    entity = r.varint()
+    if entity is None or entity <= 0:
+        return None
+    while r.remaining > 0:
+        if p[r.off] in (0x07, 0x17):
+            name = read_name(p, r.off + 1)
+            if name and name[1] + 4 <= len(p):
+                cls = class_from_code(_i32(p, name[1]))
+                if cls:
+                    return entity, name[0], cls
+        if r.varint() is None:
+            return None
+    return None
+
+
+def parse_nickname_0994(p):
+    """0x0994 / 0x0B94 -> (id, isim)."""
+    if len(p) < 4 or p[1] != 0x94:
+        return None
+    if p[0] == 0x0B:
+        if len(p) < 2 + 17 or p[6] > 0x10:
+            return None
+        pid = _i32(p, 2)
+        if pid <= 0 or _i32(p, 7) != pid:
+            return None
+        name = read_name(p, 15)
+        return (pid, name[0]) if name else None
+    if p[0] != 0x09:
+        return None
+    for kind in range(6, min(len(p) - 1, 18)):
+        if p[kind] > 0x10:
+            continue
+        pid = _i32(p, kind - 4)
+        if pid <= 0:
+            continue
+        r = read_varint(p, kind + 1)
+        if r is None or r[0] != pid:
+            continue
+        name = read_name(p, kind + 1 + r[1])
+        if name:
+            return pid, name[0]
+    return None
+
+
+def _is_uuid(b) -> bool:
+    if len(b) != 36:
+        return False
+    for i, c in enumerate(b):
+        if i in (8, 13, 18, 23):
+            if c != 0x2D:
+                return False
+        elif not (0x30 <= c <= 0x39 or 0x41 <= c <= 0x46 or 0x61 <= c <= 0x66):
+            return False
+    return True
+
+
+def _party_list_row(b, o):
+    """0x0092 parti listesi satiri -> (id, isim)."""
+    if o + 57 > len(b) or b[o] > 5 or b[o + 1] > 7 or not 1 <= b[o + 2] <= 6:
+        return None
+    entity, server = _i32(b, o + 3), _u16(b, o + 7)
+    if (entity <= 0 or not _is_server_id(server) or b[o + 11] != 36
+            or not _is_uuid(b[o + 12:o + 48]) or _u16(b, o + 54) != server):
+        return None
+    name = read_name(b, o + 56)
+    return (entity, name[0]) if name else None
+
+
+def _direct_party_row(b, o):
+    """0x0D92 / 0x1E96 dogrudan parti uyesi satiri -> (id, isim|None)."""
+    if o + 11 > len(b) or b[o] != 0x03 or not 1 <= b[o + 1] <= 5:
+        return None
+    entity, server = _i32(b, o + 2), _u16(b, o + 6)
+    if entity <= 0 or not _is_server_id(server) or b[o + 10] != 36:
+        return None
+    if o + 55 > len(b) or _u16(b, o + 53) != server:
+        return None
+    name = read_name(b, o + 55)
+    return entity, name[0] if name else None
+
+
+def _force_member_row(b, o):
+    """0x1E96 / 0x1D96 ittifak uyesi satiri -> (id, isim|None)."""
+    if (o + 25 > len(b) or not 1 <= b[o + 8] <= 4 or b[o + 9] != 0x05
+            or b[o + 10] or b[o + 11] or b[o + 12] or b[o + 13] not in (1, 2)
+            or b[o + 14] != 0x03 or not 1 <= b[o + 15] <= 6):
+        return None
+    entity, server = _i32(b, o + 16), _u16(b, o + 20)
+    if entity <= 0 or not _is_server_id(server) or _u16(b, o + 22) != server or b[o + 24] != 36:
+        return None
+    name = read_name(b, o + 25 + 36 + 8)
+    return entity, name[0] if name else None
+
+
+def _compact_force_row(b, o):
+    """0x1B96 / 0x0296 kompakt ittifak satiri -> (id, isim)."""
+    if o + 56 > len(b) or b[o] > 4 or not 1 <= b[o + 1] <= 6:
+        return None
+    entity, server = _i32(b, o + 2), _u16(b, o + 6)
+    if (entity <= 0 or not _is_server_id(server) or b[o + 10] != 36
+            or not _is_uuid(b[o + 11:o + 47]) or _u16(b, o + 53) != server):
+        return None
+    name = read_name(b, o + 55)
+    return (entity, name[0]) if name else None
+
+
+def _group_status(b):
+    """0x1B92 / 0x2B96 uye durum (can) guncellemesi -> id."""
+    r = _Reader(b)
+    entity, cur, top = r.varint(), r.varint(), r.varint()
+    if None in (entity, cur, top) or entity <= 0 or top <= 0 or not 0 <= cur <= top:
+        return None
+    if r.remaining != 25 or b[-1] > 1:
+        return None
+    return entity
+
+
+def _scan_rows(b, row_fn, start: int = 0, limit: int = 32):
+    found = []
+    o = start
+    while o < len(b) and len(found) < limit:
+        row = row_fn(b, o)
+        if row:
+            found.append(row)
+            o += 56
+        else:
+            o += 1
+    return found
+
+
+def parse_group(p):
+    """Parti/ittifak paketleri -> (tur, [(id, isim|None)], tam_liste_mi) ya da None."""
+    op = (p[0], p[1])
+    b = p[2:]
+    if op == (0x00, 0x92):
+        start = 34 if len(b) > 34 and b[0] == 0x01 else 25
+        rows = _scan_rows(b, _party_list_row, start, 6)
+        return ("party", rows, True) if rows else None
+    if op == (0x0D, 0x92):
+        row = _direct_party_row(b, 0)
+        return ("party", [row], False) if row else None
+    if op in ((0x1B, 0x92), (0x2B, 0x96)):
+        entity = _group_status(b)
+        kind = "party" if op[1] == 0x92 else "force"
+        return (kind, [(entity, None)], False) if entity else None
+    if op == (0x1E, 0x96):
+        rows = _scan_rows(b, lambda bb, o: _force_member_row(bb, o) or _direct_party_row(bb, o), 1)
+        return ("force", rows, True) if rows else None
+    if op == (0x1D, 0x96):
+        row = _force_member_row(b, 0)
+        return ("force", [row], False) if row else None
+    if op == (0x1B, 0x96):
+        row = _compact_force_row(b, 0)
+        return ("force", [row], False) if row else None
+    if op == (0x02, 0x96):
+        rows = _scan_rows(b, _compact_force_row, 22)
+        return ("force", rows, True) if rows else None
+    return None
+
+
+GROUP_OPCODES = frozenset({(0x00, 0x92), (0x0D, 0x92), (0x1B, 0x92), (0x2B, 0x96),
+                           (0x1E, 0x96), (0x1D, 0x96), (0x1B, 0x96), (0x02, 0x96)})
 
 
 def _is_embedded_damage_shape(p) -> bool:
@@ -270,12 +506,16 @@ class PacketParser:
 
     def __init__(self, on_hit: Callable[[Hit], None],
                  on_self: Callable[[int, str], None],
+                 on_identity: Callable[[int, str | None, str | None], None] | None = None,
+                 on_group: Callable[[str, list, bool], None] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self.on_hit = on_hit
         self.on_self = on_self
+        self.on_identity = on_identity or (lambda *a: None)
+        self.on_group = on_group or (lambda *a: None)
         self.clock = clock
         self.stats = {"frames": 0, "compressed": 0, "hits": 0, "mirror_dupes": 0,
-                      "lz4_errors": 0}
+                      "lz4_errors": 0, "names": 0, "group": 0}
         self._recent: dict[bytes, tuple[object, float]] = {}
 
     def handle_frame(self, frame, plen: int, conn, depth: int = 0) -> None:
@@ -298,8 +538,24 @@ class PacketParser:
             me = parse_own_nickname(payload)
             if me:
                 self.on_self(*me)
+        elif a == 0x45 and b == 0x36:
+            self._emit_identity(parse_pc_metadata_4536(payload))
+        elif a == 0x04 and b == 0x8D:
+            self._emit_identity(parse_nickname_048d(payload))
+        elif b == 0x94 and a in (0x09, 0x0B):
+            self._emit_identity(parse_nickname_0994(payload))
+        elif (a, b) in GROUP_OPCODES:
+            group = parse_group(payload)
+            if group:
+                self.stats["group"] += 1
+                kind, rows, full = group
+                for entity, name in rows:
+                    if name:
+                        self._emit_identity((entity, name))
+                self.on_group(kind, [entity for entity, _ in rows], full)
         elif (a, b) not in KNOWN_OPCODES and len(payload) <= 16384:
             self._scan_embedded(payload[2:], conn)
+            self._scan_embedded_identity(payload[2:])
 
     def walk_batch(self, data, conn, depth: int = 0) -> None:
         """Arka arkaya dizilmis cerceveleri sirayla isler."""
@@ -350,6 +606,28 @@ class PacketParser:
                         self._emit_hit(hit, body[start:start + flen], conn)
                     break
                 pos = body.find(opcode, pos + 2)
+
+    def _scan_embedded_identity(self, body) -> None:
+        """Bilinmeyen cercevelerin icindeki isim kayitlari (uzunluk oneki olmadan gelir)."""
+        body = bytes(body)
+        for opcode, parse in ((b"\x45\x36", parse_pc_metadata_4536),
+                              (b"\x04\x8d", parse_nickname_048d),
+                              (b"\x33\x36", parse_own_nickname)):
+            pos = body.find(opcode)
+            while pos >= 0:
+                found = parse(body[pos:])
+                if found and opcode == b"\x33\x36":
+                    self.on_self(*found)
+                elif found:
+                    self._emit_identity(found)
+                pos = body.find(opcode, pos + 2)
+
+    def _emit_identity(self, found) -> None:
+        if not found:
+            return
+        self.stats["names"] += 1
+        entity, name = found[0], found[1]
+        self.on_identity(entity, name, found[2] if len(found) > 2 else None)
 
     def _emit_hit(self, hit: Hit | None, frame, conn) -> None:
         if hit is None:

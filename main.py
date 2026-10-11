@@ -33,7 +33,12 @@ def build(meter: Meter, dump_file=None):
         log(f"Karakter bulundu: {name} (id {player_id})")
         meter.set_self(player_id, name)
 
-    parser = PacketParser(meter.add_hit, on_self)
+    def on_group(kind: str, members: list[int], full_list: bool) -> None:
+        if full_list:
+            log(f"{'Parti' if kind == 'party' else 'Ittifak'} listesi: {len(members)} uye")
+        meter.update_group(kind, members, full_list)
+
+    parser = PacketParser(meter.add_hit, on_self, meter.set_identity, on_group)
     return parser, Pipeline(parser, dump_file)
 
 
@@ -42,11 +47,12 @@ def run_replay(path: str) -> None:
     parser, pipeline = build(meter)
     n = replay_dump(path, pipeline)
     print(f"{n} segment, istatistik: {parser.stats}")
-    snap = meter.snapshot(max_rows=20)
-    print(f"Sure {snap.duration:.0f} sn, karakter: {snap.self_name} ({snap.self_id})")
+    snap = meter.snapshot(max_rows=20, view="herkes")
+    print(f"Sure {snap.duration:.0f} sn, karakter: {snap.self_name} ({snap.self_id}), "
+          f"bilinen isim {len(meter.names)}, parti {sorted(meter.groups['party'])}")
     for r in snap.rows:
-        print(f"  {'*' if r.is_self else ' '} {r.name:>14}  toplam {r.total:>12,}  dps {r.dps:>10,.0f}  "
-              f"krit %{r.crit_rate * 100:.0f}")
+        print(f"  {'*' if r.is_self else ' '} {r.name:>14} {r.cls or '?':>12}  toplam {r.total:>12,}  "
+              f"dps {r.dps:>10,.0f}  krit %{r.crit_rate * 100:.0f}")
 
 
 def run_selftest() -> None:
@@ -117,7 +123,7 @@ def run_live(dump_path: str | None, mode: str) -> None:
         if dump_file:
             dump_file.close()
 
-    Overlay(meter, lambda: capture.status, quit_all).run()
+    Overlay(meter, lambda: capture.status, quit_all, os.path.join(HERE, "ayarlar.json")).run()
 
 
 def main() -> None:
