@@ -122,10 +122,38 @@ def run_selftest() -> tuple[bool, str]:
     return False, "Hiç gelen TCP paketi görülmedi. Güvenlik duvarı engelliyor olabilir (README)."
 
 
+def ensure_firewall_rule() -> None:
+    """Hakari.exe icin guvenlik duvari kurali yoksa kullaniciya sorup ekler."""
+    from tkinter import Tk, messagebox
+
+    from aion2meter import firewall
+
+    program = sys.executable
+    if firewall.has_rule(program):
+        return
+    root = Tk()
+    root.withdraw()
+    ok = messagebox.askyesno(
+        f"{APP_NAME} 秤 - Güvenlik duvarı",
+        "Windows Güvenlik Duvarı, oyundan gelen paketlerin Hakari'ye ulaşmasını engelliyor.\n\n"
+        "Sadece bu exe için \"gelen trafiğe izin ver\" kuralı eklensin mi?\n"
+        "(Hakari hiçbir portu dinlemez; kural başka bir kapı açmaz.)")
+    root.destroy()
+    if not ok:
+        log("Guvenlik duvari kurali eklenmedi; paket gelmeyebilir")
+        return
+    if firewall.add_rule(program):
+        log(f"Guvenlik duvari kurali eklendi: {firewall.rule_name(program)}")
+    else:
+        notify("Güvenlik duvarı", "Kural eklenemedi. README'deki elle izin verme adımlarına bakın.", True)
+
+
 def run_live(dump_path: str | None, mode: str) -> None:
     if not ctypes.windll.shell32.IsUserAnAdmin():
         notify("Yönetici izni", "Yönetici olarak çalıştırılmalı (Baslat.bat ya da Hakari.exe).", True)
         sys.exit(1)
+    if mode == "raw" and FROZEN:
+        ensure_firewall_rule()
     windivert_dir = os.path.join(APP_DIR, "windivert")
     if mode == "windivert" and not os.path.exists(os.path.join(windivert_dir, "WinDivert.dll")):
         notify("WinDivert yok", f"--mode windivert için {windivert_dir} klasörü gerekli.", True)
