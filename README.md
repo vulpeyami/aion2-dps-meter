@@ -1,4 +1,6 @@
-# Aion2 DPS Meter
+# Hakari (秤) — Aion 2 DPS Meter
+
+*Hakari* Japoncada "terazi" demek: tartar, ölçer.
 
 Oyun içinde ne kadar hasar verdiğini gösteren küçük bir pencere. Oyunun ağ trafiğini
 **sadece okur**: oyuna dokunmaz, belleğini okumaz, paket göndermez.
@@ -7,7 +9,17 @@ Varsayılan olarak Windows'un kendi ham soketini kullanır, yani **hiçbir sür�
 WinDivert sürücüsü sadece `Baslat.bat --mode windivert` ile açıkça istenirse kullanılır.
 Protokol bilgisi [Aion2Flow](https://github.com/cloris-chan/Aion2Flow)'dan (GPL-3.0) alındı.
 
-## Kurulum (bir kez)
+## Exe ile kullanım (Python gerekmez)
+1. `Hakari.exe`'yi istediğin bir klasöre koy ve çift tıkla, yönetici iznini onayla.
+2. Windows "Bilinmeyen yayıncı" uyarısı verirse: **Ek bilgi → Yine de çalıştır**
+   (exe dijital olarak imzalı değil).
+3. Ayarlar (`ayarlar.json`) ve kayıt dosyası (`hakari.log`) exe'nin yanına yazılır.
+
+Bağlantı testi: exe'nin klasöründe bir terminal açıp `Hakari.exe --selftest`.
+Exe'yi kendin derlemek için: `py -3 -m pip install -r requirements.txt pyinstaller pillow`,
+sonra `build.bat` → `dist\Hakari.exe`.
+
+## Kaynaktan kurulum (bir kez)
 1. [Python](https://www.python.org/downloads/) 3.10 veya üstünü kur. Kurulumda "py launcher" seçili kalsın.
 2. Bu klasörde bir terminal aç: `py -3 -m pip install -r requirements.txt`
 

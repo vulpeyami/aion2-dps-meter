@@ -3,3 +3,7 @@ __pycache__/
 # --dump kayitlari (oyun trafigi icerir, paylasma)
 *.bin
 ayarlar.json
+build/
+dist/
+*.spec
+hakari.log

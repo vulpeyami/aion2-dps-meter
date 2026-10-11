@@ -1,6 +1,6 @@
-"""Aion2 DPS meter.
+"""Hakari (秤, "terazi") - Aion 2 DPS meter.
 
-Kullanim:
+Kullanim (exe icin "py main.py" yerine "Hakari.exe"):
   py main.py                  canli, surucusuz ham soket (yonetici gerekir)
   py main.py --mode windivert canli, WinDivert surucusu ile
   py main.py --dump kayit.bin canli + ham trafigi dosyaya kaydet (hata ayiklama icin)
@@ -21,11 +21,42 @@ from aion2meter.capture import DUMP_MAGIC, LiveCapture, Pipeline, replay_dump
 from aion2meter.meter import Meter
 from aion2meter.protocol import PacketParser
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+APP_NAME = "Hakari"
+FROZEN = getattr(sys, "frozen", False)  # PyInstaller exe'si olarak mi calisiyoruz
+# Ayarlar, kayitlar ve windivert klasoru: exe'nin ya da main.py'nin yaninda.
+APP_DIR = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
+LOG_PATH = os.path.join(APP_DIR, "hakari.log")
+_log_file = None
+
+
+def say(msg: str) -> None:
+    """Konsol varsa konsola, yoksa (pencereli exe) hakari.log'a yazar."""
+    global _log_file
+    if sys.stdout is not None:
+        print(msg, flush=True)
+        return
+    if _log_file is None:
+        _log_file = open(LOG_PATH, "w", encoding="utf-8")
+    _log_file.write(msg + "\n")
+    _log_file.flush()
 
 
 def log(msg: str) -> None:
-    print(time.strftime("%H:%M:%S"), msg, flush=True)
+    say(f"{time.strftime('%H:%M:%S')} {msg}")
+
+
+def notify(title: str, msg: str, error: bool = False) -> None:
+    """Konsolsuz exe'de kullaniciya mesaj kutusuyla, konsolda yaziyla bildirir."""
+    if sys.stdout is not None:
+        print(msg, flush=True)
+        if sys.stdin is not None:
+            input("Kapatmak icin Enter...")
+        return
+    from tkinter import Tk, messagebox
+    root = Tk()
+    root.withdraw()
+    (messagebox.showerror if error else messagebox.showinfo)(f"{APP_NAME} 秤 - {title}", msg)
+    root.destroy()
 
 
 def build(meter: Meter, dump_file=None):
@@ -46,16 +77,16 @@ def run_replay(path: str) -> None:
     meter = Meter(idle_reset=1e9)
     parser, pipeline = build(meter)
     n = replay_dump(path, pipeline)
-    print(f"{n} segment, istatistik: {parser.stats}")
+    say(f"{n} segment, istatistik: {parser.stats}")
     snap = meter.snapshot(max_rows=20, view="herkes")
-    print(f"Sure {snap.duration:.0f} sn, karakter: {snap.self_name} ({snap.self_id}), "
+    say(f"Sure {snap.duration:.0f} sn, karakter: {snap.self_name} ({snap.self_id}), "
           f"bilinen isim {len(meter.names)}, parti {sorted(meter.groups['party'])}")
     for r in snap.rows:
-        print(f"  {'*' if r.is_self else ' '} {r.name:>14} {r.cls or '?':>12}  toplam {r.total:>12,}  "
+        say(f"  {'*' if r.is_self else ' '} {r.name:>14} {r.cls or '?':>12}  toplam {r.total:>12,}  "
               f"dps {r.dps:>10,.0f}  krit %{r.crit_rate * 100:.0f}")
 
 
-def run_selftest() -> None:
+def run_selftest() -> tuple[bool, str]:
     """Ham soketin bu bilgisayarda paket alabildigini oyun olmadan dener."""
     import queue
     import socket
@@ -71,9 +102,8 @@ def run_selftest() -> None:
     try:
         sock = backend._open(ip)
     except OSError as e:
-        print(f"Ham soket acilamadi: {e}")
-        return
-    print(f"{ip} dinleniyor. 10 saniye boyunca tarayicida bir sayfa ac/yenile...")
+        return False, f"Ham soket açılamadı: {e}"
+    log(f"{ip} dinleniyor, 10 saniye...")
     sock.settimeout(0.5)
     local, count, end = socket.inet_aton(ip), 0, time.monotonic() + 10
     while time.monotonic() < end:
@@ -86,28 +116,30 @@ def run_selftest() -> None:
     sock.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)
     sock.close()
     if count:
-        print(f"BASARILI: {count} gelen TCP paketi goruldu. Ham soket bu bilgisayarda calisiyor.")
-    else:
-        print("Hic gelen TCP paketi gorulmedi. Guvenlik duvari engelliyor olabilir (README).")
+        return True, f"BAŞARILI: {count} gelen TCP paketi görüldü. Ham soket bu bilgisayarda çalışıyor."
+    return False, "Hiç gelen TCP paketi görülmedi. Güvenlik duvarı engelliyor olabilir (README)."
 
 
 def run_live(dump_path: str | None, mode: str) -> None:
     if not ctypes.windll.shell32.IsUserAnAdmin():
-        print("Yonetici olarak calistirilmali (Baslat.bat kullanin).")
-        input("Kapatmak icin Enter...")
+        notify("Yönetici izni", "Yönetici olarak çalıştırılmalı (Baslat.bat ya da Hakari.exe).", True)
+        sys.exit(1)
+    windivert_dir = os.path.join(APP_DIR, "windivert")
+    if mode == "windivert" and not os.path.exists(os.path.join(windivert_dir, "WinDivert.dll")):
+        notify("WinDivert yok", f"--mode windivert için {windivert_dir} klasörü gerekli.", True)
         sys.exit(1)
 
     from aion2meter.overlay import Overlay
 
     dump_file = None
     if dump_path:
-        dump_file = open(dump_path, "wb")
+        dump_file = open(os.path.join(APP_DIR, dump_path), "wb")
         dump_file.write(DUMP_MAGIC)
         log(f"Ham trafik kaydediliyor: {dump_path}")
 
     meter = Meter()
     parser, pipeline = build(meter, dump_file)
-    capture = LiveCapture(pipeline, mode, os.path.join(HERE, "windivert"), log)
+    capture = LiveCapture(pipeline, mode, windivert_dir, log)
     log(f"Yontem: {capture.backend.name}")
     capture.start()
 
@@ -123,11 +155,11 @@ def run_live(dump_path: str | None, mode: str) -> None:
         if dump_file:
             dump_file.close()
 
-    Overlay(meter, lambda: capture.status, quit_all, os.path.join(HERE, "ayarlar.json")).run()
+    Overlay(meter, lambda: capture.status, quit_all, os.path.join(APP_DIR, "ayarlar.json")).run()
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Aion2 DPS meter")
+    ap = argparse.ArgumentParser(description="Hakari (秤) - Aion 2 DPS meter")
     ap.add_argument("--dump", metavar="DOSYA", help="ham trafigi dosyaya kaydet")
     ap.add_argument("--replay", metavar="DOSYA", help="kaydedilmis trafigi isle")
     ap.add_argument("--mode", choices=("raw", "windivert"), default="raw",
@@ -139,10 +171,14 @@ def main() -> None:
         run_replay(args.replay)
     elif args.selftest:
         if not ctypes.windll.shell32.IsUserAnAdmin():
-            print("Yonetici olarak calistirilmali (Baslat.bat --selftest).")
+            notify("Bağlantı testi", "Yönetici olarak çalıştırılmalı.", True)
+            return
+        if sys.stdout is None:
+            notify("Bağlantı testi", "Tamam'a bastıktan sonra 10 saniye içinde tarayıcıda bir sayfa aç.")
         else:
-            run_selftest()
-        input("Kapatmak icin Enter...")
+            print("10 saniye icinde tarayicida bir sayfa ac/yenile...")
+        ok, msg = run_selftest()
+        notify("Bağlantı testi", msg, not ok)
     else:
         run_live(args.dump, args.mode)
 

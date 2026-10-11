@@ -1,4 +1,4 @@
-"""Oyunun ustunde duran kucuk DPS penceresi (tkinter).
+"""Hakari (秤): oyunun ustunde duran kucuk DPS penceresi (tkinter).
 
 Sol tik + surukle: tasi.  Sag tik: menu.  Bir satira cift tik: "bu benim".
 """
@@ -83,7 +83,7 @@ class Overlay:
         self.root = tk.Tk()
         self.s = self.root.winfo_fpixels("1i") / 96.0
         self.width = round(WIDTH * self.s)
-        self.root.title("Aion2 DPS")
+        self.root.title("Hakari 秤")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.88)
@@ -162,7 +162,7 @@ class Overlay:
         c.delete("all")
         view = self.view.get()
 
-        title = f"AION2 DPS  ·  {VIEW_LABELS[view]}"
+        title = f"秤 HAKARI  ·  {VIEW_LABELS[view]}"
         if view == VIEW_PARTY and not snap.in_group:
             title += " (parti yok)"
         self._text(8, 5, title, 8, DIM, bold=True)
