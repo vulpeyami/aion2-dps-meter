@@ -119,6 +119,7 @@ class Overlay:
         self.canvas.bind("<Double-Button-1>", self._on_double_click)
         self._drag = (0, 0)
         self._height = 0
+        self._saved_self_name = settings.get("self_name")
 
     def run(self) -> None:
         self._tick()
@@ -132,7 +133,8 @@ class Overlay:
     def _save_settings(self) -> None:
         if not self.settings_path:
             return
-        data = {"view": self.view.get(), "x": self.root.winfo_x(), "y": self.root.winfo_y()}
+        data = {"view": self.view.get(), "x": self.root.winfo_x(), "y": self.root.winfo_y(),
+                "self_name": self._saved_self_name}
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
@@ -155,7 +157,12 @@ class Overlay:
 
     def _tick(self) -> None:
         try:
-            self._draw(self.meter.snapshot(max_rows=MAX_ROWS, view=self.view.get()))
+            snap = self.meter.snapshot(max_rows=MAX_ROWS, view=self.view.get())
+            if snap.self_name and snap.self_name != self._saved_self_name:
+                # Karakter adini hatirla: sonraki acilista teleport gerekmeden taninir.
+                self._saved_self_name = snap.self_name
+                self._save_settings()
+            self._draw(snap)
         finally:
             self.root.after(250, self._tick)
 

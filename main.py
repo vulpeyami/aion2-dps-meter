@@ -73,8 +73,10 @@ def build(meter: Meter, dump_file=None):
     return parser, Pipeline(parser, dump_file)
 
 
-def run_replay(path: str) -> None:
-    meter = Meter(idle_reset=1e9)
+def run_replay(path: str, self_name: str | None) -> None:
+    # Sure hesabi icin kayittaki paket zamanlari kullanilir, bilgisayarin saati degil.
+    pipeline = None
+    meter = Meter(idle_reset=1e9, clock=lambda: pipeline.last_ts, self_name_hint=self_name)
     parser, pipeline = build(meter)
     n = replay_dump(path, pipeline)
     say(f"{n} segment, istatistik: {parser.stats}")
@@ -137,7 +139,10 @@ def run_live(dump_path: str | None, mode: str) -> None:
         dump_file.write(DUMP_MAGIC)
         log(f"Ham trafik kaydediliyor: {dump_path}")
 
-    meter = Meter()
+    from aion2meter.overlay import load_settings
+
+    settings_path = os.path.join(APP_DIR, "ayarlar.json")
+    meter = Meter(self_name_hint=load_settings(settings_path).get("self_name"))
     parser, pipeline = build(meter, dump_file)
     capture = LiveCapture(pipeline, mode, windivert_dir, log)
     log(f"Yontem: {capture.backend.name}")
@@ -155,20 +160,21 @@ def run_live(dump_path: str | None, mode: str) -> None:
         if dump_file:
             dump_file.close()
 
-    Overlay(meter, lambda: capture.status, quit_all, os.path.join(APP_DIR, "ayarlar.json")).run()
+    Overlay(meter, lambda: capture.status, quit_all, settings_path).run()
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Hakari (秤) - Aion 2 DPS meter")
     ap.add_argument("--dump", metavar="DOSYA", help="ham trafigi dosyaya kaydet")
     ap.add_argument("--replay", metavar="DOSYA", help="kaydedilmis trafigi isle")
+    ap.add_argument("--self", metavar="ISIM", help="--replay icin: karakter adi")
     ap.add_argument("--mode", choices=("raw", "windivert"), default="raw",
                     help="raw: surucusuz ham soket (varsayilan), windivert: WinDivert surucusu")
     ap.add_argument("--selftest", action="store_true",
                     help="ham soketin bu bilgisayarda calistigini oyun olmadan dene")
     args = ap.parse_args()
     if args.replay:
-        run_replay(args.replay)
+        run_replay(args.replay, args.self)
     elif args.selftest:
         if not ctypes.windll.shell32.IsUserAnAdmin():
             notify("Bağlantı testi", "Yönetici olarak çalıştırılmalı.", True)

@@ -139,10 +139,12 @@ class Pipeline:
         self.dump_file = dump_file
         self.flows: dict[tuple, tuple[TcpReassembler, StreamDecoder, list]] = {}
         self.segments = 0
+        self.last_ts = 0.0  # son paketin yakalanma zamani (replay'de sure hesabi icin)
         self._last_cleanup = time.monotonic()
 
     def process(self, key, seq: int, syn: bool, data: bytes, ts: float | None = None) -> None:
         ts = time.time() if ts is None else ts
+        self.last_ts = ts
         if self.dump_file is not None:
             k = repr(key).encode()
             self.dump_file.write(struct.pack("<dHIB I", ts, len(k), seq, syn, len(data)))
@@ -185,8 +187,10 @@ def replay_dump(path: str, pipeline: Pipeline) -> int:
             if len(h) < head:
                 break
             ts, klen, seq, syn, dlen = struct.unpack("<dHIB I", h)
-            key = ast.literal_eval(f.read(klen).decode())
-            data = f.read(dlen)
+            raw_key, data = f.read(klen), f.read(dlen)
+            if len(raw_key) < klen or len(data) < dlen:
+                break  # program kapanirken yarim kalan son kayit
+            key = ast.literal_eval(raw_key.decode())
             pipeline.process(key, seq, bool(syn), data, ts)
             count += 1
     return count

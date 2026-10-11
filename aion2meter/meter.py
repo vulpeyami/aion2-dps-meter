@@ -47,12 +47,15 @@ class Snapshot:
 class Meter:
     """Thread-safe. Son vurustan idle_reset saniye sonra yeni vurus yeni karsilasma baslatir."""
 
-    def __init__(self, idle_reset: float = 15.0, clock=time.monotonic):
+    def __init__(self, idle_reset: float = 15.0, clock=time.monotonic,
+                 self_name_hint: str | None = None):
         self.idle_reset = idle_reset
         self.clock = clock
         self._lock = threading.Lock()
         self.self_id: int | None = None
         self.self_name: str | None = None
+        # Onceki oturumdan hatirlanan karakter adi: isim paketi gelince bizi otomatik tanir.
+        self.self_name_hint = self_name_hint
         # Kimlik bilgileri karsilasmalar arasinda korunur.
         self.names: dict[int, str] = {}
         self.known_class: dict[int, str] = {}
@@ -84,6 +87,8 @@ class Meter:
                 self.names[entity] = name
                 if entity == self.self_id:
                     self.self_name = name
+                elif self.self_id is None and name == self.self_name_hint:
+                    self.self_id, self.self_name = entity, name
             if cls:
                 self.known_class[entity] = cls
 
