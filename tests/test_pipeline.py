@@ -216,6 +216,15 @@ class RawSocketFilterTests(unittest.TestCase):
         self.assertIn("IPv6", backend.update({("2001:db8::1", 50000)}))
 
 
+class ProcessListTests(unittest.TestCase):
+    def test_find_pids_sees_own_process_without_handles(self):
+        import psutil
+        from aion2meter.capture import find_pids
+        own = psutil.Process().name().lower()
+        self.assertIn(os.getpid(), find_pids({own}))
+        self.assertEqual(find_pids({"boyle-bir-program-yok.exe"}), set())
+
+
 class MeterTests(unittest.TestCase):
     def test_monster_damage_excluded_when_self_known(self):
         t = [0.0]

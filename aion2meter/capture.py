@@ -68,19 +68,62 @@ def parse_ip_tcp(pkt: bytes):
     return key, seq, syn, bytes(t[doff:])
 
 
+class _ProcessEntry32W(ctypes.Structure):
+    _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+
+_k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+_k32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+_k32.Process32FirstW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcessEntry32W)]
+_k32.Process32FirstW.restype = wintypes.BOOL
+_k32.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcessEntry32W)]
+_k32.Process32NextW.restype = wintypes.BOOL
+_k32.CloseHandle.argtypes = [ctypes.c_void_p]
+TH32CS_SNAPPROCESS = 0x2
+
+
+def find_pids(exe_names: set[str]) -> set[int]:
+    """Adi verilen exe'lerin PID'leri.
+
+    Toolhelp anlik goruntusu kullanilir: hicbir isleme (oyuna da) handle acilmaz.
+    psutil.process_iter her isleme OpenProcess cagirdigi icin kullanilmiyor.
+    """
+    snap = _k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snap in (None, INVALID_HANDLE):
+        return set()
+    pids = set()
+    try:
+        entry = _ProcessEntry32W()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = _k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if entry.szExeFile.lower() in exe_names:
+                pids.add(entry.th32ProcessID)
+            ok = _k32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        _k32.CloseHandle(snap)
+    return pids
+
+
+def _is_loopback(ip: str) -> bool:
+    # Oyunun kendi surecleri arasindaki yerel baglantilar; ham soket loopback'i dinleyemez.
+    return ip.startswith("127.") or ip in ("::1", "::ffff:127.0.0.1")
+
+
 def find_game_endpoints() -> set[tuple[str, int]]:
     """Oyunun acik TCP baglantilarinin yerel (ip, port) ciftleri."""
-    pids = set()
-    for proc in psutil.process_iter(["name"]):
-        name = (proc.info.get("name") or "").lower()
-        if name in GAME_EXE_NAMES:
-            pids.add(proc.pid)
+    pids = find_pids(GAME_EXE_NAMES)
     if not pids:
         return set()
     endpoints = set()
     for c in psutil.net_connections(kind="tcp"):
         if (c.pid in pids and c.raddr and c.laddr and c.status == psutil.CONN_ESTABLISHED
-                and c.raddr.port not in WEB_PORTS):
+                and c.raddr.port not in WEB_PORTS and not _is_loopback(c.raddr.ip)):
             ip = c.laddr.ip
             if ip.startswith("::ffff:") and "." in ip:  # IPv4-mapped IPv6
                 ip = ip[7:]
@@ -167,6 +210,7 @@ class _RawSocketBackend:
         ips = {ip for ip, _ in endpoints}
         for ip in set(self._sockets) - ips:
             self._sockets.pop(ip).set()
+        error = None
         for ip in ips - set(self._sockets):
             if ":" in ip:
                 continue
@@ -175,15 +219,20 @@ class _RawSocketBackend:
             except PermissionError:
                 return "Ham soket açılamadı: yönetici olarak çalıştırın"
             except OSError as e:
-                return f"Ham soket açılamadı ({ip}): {e}"
+                error = f"Ham soket açılamadı ({ip}): {e}"  # digerlerini denemeye devam et
+                continue
             stop = threading.Event()
             self._sockets[ip] = stop
             threading.Thread(target=self._loop, args=(ip, sock, stop), name=f"raw-{ip}",
                              daemon=True).start()
             self.log(f"Ham soket acildi: {ip}")
+        if self._sockets:
+            if error:
+                self.log(error)
+            return None
         if any(":" in ip for ip in ips):
             return "Oyun IPv6 kullanıyor, ham soket desteklemiyor (--mode windivert)"
-        return None
+        return error
 
     def stop(self) -> None:
         for stop in self._sockets.values():
