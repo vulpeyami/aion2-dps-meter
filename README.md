@@ -31,7 +31,9 @@ sonra `build.bat` → `dist\Hakari.exe`.
 1. Oyunu **pencereli / kenarlıksız tam ekran** moduna al (tam ekran modunda pencere görünmez).
 2. `Baslat.bat`'a çift tıkla ve yönetici iznini onayla.
 3. Karakterin, oyuna girişte veya teleport sonrasında otomatik tanınır. Meter'i oyundan
-   sonra açtıysan ya bir kez teleport ol ya da listede kendi satırına çift tıkla.
+   sonra açtıysan ya bir kez teleport ol ya da listede kendi satırına çift tıkla. Bu sadece
+   ilk sefer gerekir: karakter adın `ayarlar.json`'a kaydedilir ve sonraki açılışlarda
+   otomatik tanınırsın.
 
 | Fare | İşlev |
 |---|---|
