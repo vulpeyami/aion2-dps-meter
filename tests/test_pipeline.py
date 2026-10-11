@@ -165,6 +165,57 @@ class StreamTests(unittest.TestCase):
         self.assertEqual((key[1], key[3], seq, syn, data), (1234, 5555, 42, False, payload))
 
 
+def ip_tcp_packet(src_ip, dst_ip, sport, dport, payload=b"x", seq=1):
+    tcp = sport.to_bytes(2, "big") + dport.to_bytes(2, "big") + seq.to_bytes(4, "big") \
+        + b"\x00" * 4 + bytes([5 << 4, 0x18]) + b"\x00" * 6
+    total = 20 + len(tcp) + len(payload)
+    ip = bytes([0x45, 0]) + total.to_bytes(2, "big") + b"\x00" * 5 + b"\x06" + b"\x00" * 2 \
+        + bytes(src_ip) + bytes(dst_ip)
+    return ip + tcp + payload
+
+
+class RawSocketFilterTests(unittest.TestCase):
+    def test_only_inbound_game_packets_are_queued(self):
+        import queue
+        import threading
+        from aion2meter.capture import _RawSocketBackend
+
+        me, server, other_ip = [192, 168, 1, 5], [20, 0, 0, 1], [192, 168, 1, 9]
+        packets = [
+            ip_tcp_packet(server, me, 7777, 50000, b"game"),    # oyuna gelen: alinmali
+            ip_tcp_packet(server, me, 443, 50001, b"browser"),  # baska port
+            ip_tcp_packet(server, other_ip, 7777, 50000),       # baska IP
+            ip_tcp_packet(me, server, 50000, 7777, b"out"),     # oyundan giden
+        ]
+
+        class FakeSock:
+            def recv_into(self, buf):
+                if not packets:
+                    raise OSError("bitti")
+                p = packets.pop(0)
+                buf[:len(p)] = p
+                return len(p)
+
+            def ioctl(self, *a):
+                pass
+
+            def close(self):
+                pass
+
+        out = queue.Queue()
+        backend = _RawSocketBackend(out, lambda m: None)
+        backend.ports = frozenset({50000})
+        backend._loop("192.168.1.5", FakeSock(), threading.Event())
+        got = [parse_ip_tcp(out.get_nowait()[1])[3] for _ in range(out.qsize())]
+        self.assertEqual(got, [b"game"])
+
+    def test_ipv6_reports_error(self):
+        import queue
+        from aion2meter.capture import _RawSocketBackend
+        backend = _RawSocketBackend(queue.Queue(), lambda m: None)
+        self.assertIn("IPv6", backend.update({("2001:db8::1", 50000)}))
+
+
 class MeterTests(unittest.TestCase):
     def test_monster_damage_excluded_when_self_known(self):
         t = [0.0]

@@ -130,7 +130,7 @@ class Overlay:
             self._text(8, 54, f"Toplam {fmt_num(me.total)}   •   Krit %{me.crit_rate * 100:.0f}", 8, DIM)
         else:
             status = self.status_fn()
-            if status != "Dinleniyor":
+            if not status.startswith("Dinleniyor"):
                 hint = status
             elif snap.rows:
                 hint = "Karakterin bulunamadı: listede kendi satırına çift tıkla"

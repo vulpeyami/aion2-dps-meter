@@ -1,9 +1,11 @@
 """Aion2 DPS meter.
 
 Kullanim:
-  py main.py                  canli (yonetici gerekir)
+  py main.py                  canli, surucusuz ham soket (yonetici gerekir)
+  py main.py --mode windivert canli, WinDivert surucusu ile
   py main.py --dump kayit.bin canli + ham trafigi dosyaya kaydet (hata ayiklama icin)
   py main.py --replay kayit.bin   kaydi isleyip ozet yazdir (yonetici gerekmez)
+  py main.py --selftest       ham soketin calistigini oyun olmadan dene (yonetici gerekir)
 """
 
 from __future__ import annotations
@@ -47,7 +49,43 @@ def run_replay(path: str) -> None:
               f"krit %{r.crit_rate * 100:.0f}")
 
 
-def run_live(dump_path: str | None) -> None:
+def run_selftest() -> None:
+    """Ham soketin bu bilgisayarda paket alabildigini oyun olmadan dener."""
+    import queue
+    import socket
+
+    from aion2meter.capture import _RawSocketBackend
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe.connect(("1.1.1.1", 53))  # UDP connect paket gondermez, sadece arayuzu secer
+    ip = probe.getsockname()[0]
+    probe.close()
+
+    backend = _RawSocketBackend(queue.Queue(), log)
+    try:
+        sock = backend._open(ip)
+    except OSError as e:
+        print(f"Ham soket acilamadi: {e}")
+        return
+    print(f"{ip} dinleniyor. 10 saniye boyunca tarayicida bir sayfa ac/yenile...")
+    sock.settimeout(0.5)
+    local, count, end = socket.inet_aton(ip), 0, time.monotonic() + 10
+    while time.monotonic() < end:
+        try:
+            pkt = sock.recv(0xFFFF)
+        except socket.timeout:
+            continue
+        if len(pkt) >= 40 and pkt[9] == 6 and pkt[16:20] == local:
+            count += 1
+    sock.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)
+    sock.close()
+    if count:
+        print(f"BASARILI: {count} gelen TCP paketi goruldu. Ham soket bu bilgisayarda calisiyor.")
+    else:
+        print("Hic gelen TCP paketi gorulmedi. Guvenlik duvari engelliyor olabilir (README).")
+
+
+def run_live(dump_path: str | None, mode: str) -> None:
     if not ctypes.windll.shell32.IsUserAnAdmin():
         print("Yonetici olarak calistirilmali (Baslat.bat kullanin).")
         input("Kapatmak icin Enter...")
@@ -63,7 +101,8 @@ def run_live(dump_path: str | None) -> None:
 
     meter = Meter()
     parser, pipeline = build(meter, dump_file)
-    capture = LiveCapture(pipeline, os.path.join(HERE, "windivert"), log)
+    capture = LiveCapture(pipeline, mode, os.path.join(HERE, "windivert"), log)
+    log(f"Yontem: {capture.backend.name}")
     capture.start()
 
     def report() -> None:
@@ -85,11 +124,21 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Aion2 DPS meter")
     ap.add_argument("--dump", metavar="DOSYA", help="ham trafigi dosyaya kaydet")
     ap.add_argument("--replay", metavar="DOSYA", help="kaydedilmis trafigi isle")
+    ap.add_argument("--mode", choices=("raw", "windivert"), default="raw",
+                    help="raw: surucusuz ham soket (varsayilan), windivert: WinDivert surucusu")
+    ap.add_argument("--selftest", action="store_true",
+                    help="ham soketin bu bilgisayarda calistigini oyun olmadan dene")
     args = ap.parse_args()
     if args.replay:
         run_replay(args.replay)
+    elif args.selftest:
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            print("Yonetici olarak calistirilmali (Baslat.bat --selftest).")
+        else:
+            run_selftest()
+        input("Kapatmak icin Enter...")
     else:
-        run_live(args.dump)
+        run_live(args.dump, args.mode)
 
 
 if __name__ == "__main__":
