@@ -9,9 +9,13 @@ portu dinlemedigi icin bu kural baska bir kapi acmaz.
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 
 CREATE_NO_WINDOW = 0x08000000
+# Tam yol sart: sadece "netsh" denirse Windows once exe'nin klasorune bakar; oraya konmus
+# sahte bir netsh.exe Hakari'nin yonetici izniyle calisirdi.
+NETSH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "netsh.exe")
 
 
 def rule_name(program: str) -> str:
@@ -23,7 +27,7 @@ def rule_name(program: str) -> str:
 def _netsh(command: str) -> int:
     # Komut tek bir metin olarak verilir: netsh kendi key="deger" ayristirmasini yapar,
     # boylece bosluk iceren yollar dogru tirnaklanir.
-    result = subprocess.run(f"netsh advfirewall firewall {command}", capture_output=True,
+    result = subprocess.run(f'"{NETSH}" advfirewall firewall {command}', capture_output=True,
                             creationflags=CREATE_NO_WINDOW)
     return result.returncode
 

@@ -46,7 +46,7 @@ sonra `build.bat` → `dist\Hakari.exe`.
 | Sol tık + sürükle | Pencereyi taşı |
 | Satıra tık (ya da büyük DPS rakamına) | O oyuncunun **skill dökümü**; üstteki ◀ çubuğu geri döner |
 | Üstteki sekmeler | **Canlı** dövüş, son 3 **boss**, zindan **Toplam**ı |
-| Sağ tık | Görünüm, verilen/alınan hasar, geçmiş dövüşler, boyut, saydamlık, kilit, sıfırla |
+| Sağ tık | Görünüm, verilen/alınan hasar, geçmiş dövüşler, boyut, saydamlık, arka plan rengi, kilit, sıfırla |
 | Satıra sağ tık | "Bu benim" |
 | Ctrl + fare tekerleği | Boyut (%80–%175) |
 | Ctrl+Shift+H | Gizle / göster |
@@ -78,7 +78,9 @@ görünür; geçersen "▲ Yeni rekor!" yazar. Rekorlar karakter adına göre tu
 partidekilerin isimleri de olduğu için paylaşırken dikkat et.
 
 Dövüş dışında pencere soluklaşır; fare üstüne gelince netleşir.
-Seçimler, boyut, saydamlık ve pencere konumu `ayarlar.json`'a kaydedilir.
+Arka plan rengi sağ tık → **Arka plan rengi**'nden seçilir: Koyu gri, Siyah, Antrasit, Lacivert,
+Mor, Koyu yeşil, Bordo.
+Seçimler, boyut, saydamlık, renk ve pencere konumu `ayarlar.json`'a kaydedilir.
 
 **İsimler ve sınıflar:** Oyuncu isimleri, oyuncular görüş alanına girdiğinde ve parti/ittifak
 listesi geldiğinde okunur. Sınıf (çubuk rengi) isim paketinden ya da kullanılan skill'lerden
@@ -103,6 +105,14 @@ izin ver → `python.exe` için Özel ağ kutusunu işaretle. Yine olmazsa son �
 ## Bir şey yanlış görünüyorsa
 `Baslat.bat --dump kayit.bin` ile çalıştırıp biraz savaş, sonra kapat.
 `py main.py --replay kayit.bin` kaydı tekrar işleyip özet yazar (yönetici gerekmez).
+
+## Güvenlik
+- Exe'yi kendi klasörüne koy (ör. `C:\Oyunlar\Hakari\`), İndirilenler gibi kalabalık bir klasörde
+  çalıştırma. Hakari yönetici izniyle çalışır; Windows bir programın yanındaki DLL'leri de
+  yükleyebildiği için klasöre başka biri dosya koyamamalı.
+- Hakari dışarıya hiçbir şey göndermez ve hiçbir portu dinlemez. Güvenlik duvarı kuralı sadece
+  oyundan gelen paketlerin ham sokete ulaşması içindir.
+- `kayit.bin` (--dump) ve `kayitlar\` başka oyuncuların isimlerini içerir; paylaşırken dikkat et.
 
 ## Bilinen eksikler
 - Pet/çağrı hasarı sahibine eklenmez, ayrı satır olarak görünür.

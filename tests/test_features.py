@@ -164,6 +164,21 @@ class RecordTests(unittest.TestCase):
             self.assertIsNone(r.personal_best("Ben", "Fediv Wraith"))
 
 
+class SecurityTests(unittest.TestCase):
+    def test_netsh_is_called_by_full_path(self):
+        # Sadece "netsh" yazilirsa exe'nin klasorundeki sahte netsh.exe yonetici izniyle calisir.
+        from aion2meter.firewall import NETSH
+        self.assertTrue(os.path.isabs(NETSH))
+        self.assertTrue(NETSH.lower().endswith(os.path.join("system32", "netsh.exe")))
+
+    def test_themes_are_complete(self):
+        from aion2meter.overlay import THEMES
+        for name, colors in THEMES.items():
+            self.assertEqual(len(colors), 4, name)
+            for c in colors[1:]:
+                self.assertRegex(c, r"^#[0-9a-f]{6}$")
+
+
 class OverlayHelperTests(unittest.TestCase):
     def test_smooth_series_length(self):
         self.assertEqual(len(smooth_series([1] * 50, 200)), 50)

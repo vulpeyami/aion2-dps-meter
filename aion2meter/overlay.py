@@ -30,12 +30,20 @@ SHARE_X = WIDTH - 9
 MAX_ROWS = 8
 MAX_SKILL_ROWS = 12
 MAX_BOSS_TABS = 3
-BG = "#14161b"
 FG = "#e8e8e8"
 DIM = "#8a8f98"
 ACCENT = "#f0b43c"
-TAB_BG = "#262a33"
-GRAPH_FILL = "#3a3222"
+# Arka plan temalari: ad, arka plan, sekme/baslik zemini, grafik dolgusu.
+# Hepsi koyu; beyaz yazi ve sinif renkleri her birinde okunur kalir.
+THEMES = {
+    "koyu": ("Koyu gri", "#14161b", "#262a33", "#3a3222"),
+    "siyah": ("Siyah", "#000000", "#1c1c1f", "#2e2a1e"),
+    "antrasit": ("Antrasit", "#2a2c31", "#3c3f46", "#4a4232"),
+    "lacivert": ("Lacivert", "#0d1626", "#1e2b42", "#22324a"),
+    "mor": ("Mor", "#1a1226", "#2e2242", "#3b2b4c"),
+    "yesil": ("Koyu yeşil", "#0e1a14", "#1d2f25", "#23392b"),
+    "bordo": ("Bordo", "#230f10", "#3b1d1e", "#47291f"),
+}
 FONT = "Segoe UI"
 SCALES = (0.8, 0.9, 1.0, 1.15, 1.3, 1.5, 1.75)
 OPACITIES = (1.0, 0.9, 0.8, 0.7, 0.6)
@@ -138,7 +146,6 @@ class Overlay:
         self.root.title("Hakari 秤")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.configure(bg=BG)
 
         # Ayarlar
         view = settings.get("view", VIEW_PARTY)
@@ -152,6 +159,8 @@ class Overlay:
         opacity = settings.get("opacity", 0.9)
         self.opacity = opacity if opacity in OPACITIES else 0.9
         self.locked = bool(settings.get("locked", False))
+        theme = settings.get("theme", "koyu")
+        self.theme = theme if theme in THEMES else "koyu"
         self._saved_self_name = settings.get("self_name")
 
         self.detail: int | None = None  # skill dokumu acik olan oyuncu
@@ -168,9 +177,12 @@ class Overlay:
         self._saved_changes = meter.changes
         self._apply_scale()
         x, y = settings.get("x", 40), settings.get("y", 200)
-        self.root.geometry(f"{self.width}x{round(80 * self.s)}+{int(x)}+{int(y)}")
+        if not (isinstance(x, int) and isinstance(y, int)):  # bozuk ayar dosyasi
+            x, y = 40, 200
+        self.root.geometry(f"{self.width}x{round(80 * self.s)}+{x}+{y}")
 
-        self.canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0, bd=0)
+        self.canvas = tk.Canvas(self.root, highlightthickness=0, bd=0)
+        self._apply_theme()
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_motion)
@@ -245,6 +257,7 @@ class Overlay:
         data = {"view": self.view, "mode": self.mode,
                 "scope": self.scope if isinstance(self.scope, str) else SCOPE_FIGHT,
                 "scale": self.scale, "opacity": self.opacity, "locked": self.locked,
+                "theme": self.theme,
                 "x": self.root.winfo_x(), "y": self.root.winfo_y(),
                 "self_name": self._saved_self_name}
         try:
@@ -258,6 +271,8 @@ class Overlay:
         if attr == "scale":
             self._apply_scale()
             self.root.geometry(f"{self.width}x{max(self._height, 1)}")
+        elif attr == "theme":
+            self._apply_theme()
         self._save_settings()
         if self._snap is not None:
             self._draw(self.meter.snapshot(max_rows=MAX_ROWS, view=self.view, scope=self.scope,
@@ -267,6 +282,11 @@ class Overlay:
         self.s = self.dpi * self.scale
         self.width = round(WIDTH * self.s)
         self._font_cache.clear()
+
+    def _apply_theme(self) -> None:
+        _, self.bg, self.tab_bg, self.graph_fill = THEMES[self.theme]
+        self.root.configure(bg=self.bg)
+        self.canvas.configure(bg=self.bg)
 
     def _on_ctrl_wheel(self, e) -> None:
         i = SCALES.index(self.scale) + (1 if e.delta > 0 else -1)
@@ -419,6 +439,10 @@ class Overlay:
         for op in OPACITIES:
             radio(alphas, f"%{op * 100:.0f}", "opacity", op)
         m.add_cascade(label="Saydamlık", menu=alphas)
+        themes = tk.Menu(m, tearoff=0)
+        for key, (label, *_) in THEMES.items():
+            radio(themes, label, "theme", key)
+        m.add_cascade(label="Arka plan rengi", menu=themes)
         m.add_command(label="Kilitle (tıklama oyuna geçer)", accelerator="Ctrl+Shift+L",
                       command=self._toggle_lock)
         m.add_command(label="Özeti kopyala", accelerator="Ctrl+Shift+C", command=self._copy_summary)
@@ -553,7 +577,7 @@ class Overlay:
         for i, v in enumerate(pts):
             line += [(8 + i * step) * s, (y + GRAPH_H - v / peak * GRAPH_H) * s]
         self.canvas.create_polygon(8 * s, (y + GRAPH_H) * s, *line, (8 + w) * s, (y + GRAPH_H) * s,
-                                   fill=GRAPH_FILL, outline="")
+                                   fill=self.graph_fill, outline="")
         self.canvas.create_line(*line, fill=color if color != UNKNOWN_COLOR else ACCENT,
                                 width=max(1, round(1.5 * s)))
         return peak
@@ -578,7 +602,7 @@ class Overlay:
             tw = self._measure(label, 8) + 2 * pad
             selected = key == self.scope
             if selected:
-                self._rect(x, y, x + tw, y + TAB_H, fill=TAB_BG, width=0)
+                self._rect(x, y, x + tw, y + TAB_H, fill=self.tab_bg, width=0)
                 self._rect(x, y + TAB_H - 2, x + tw, y + TAB_H, fill=ACCENT, width=0)
             self._text(x + tw / 2, y + TAB_H / 2 - 1, label, 8, ACCENT if selected else DIM,
                        anchor="center", bold=selected)
@@ -621,7 +645,7 @@ class Overlay:
     def _draw_detail(self, y: float, snap: Snapshot) -> float:
         player, skills = self.meter.skill_breakdown(self.detail, self.scope)
         back = lambda: self._open_detail(None)  # noqa: E731
-        self._rect(4, y, WIDTH - 4, y + TAB_H, fill=TAB_BG, width=0)
+        self._rect(4, y, WIDTH - 4, y + TAB_H, fill=self.tab_bg, width=0)
         self._hit(0, y, WIDTH, y + TAB_H, back)
         if player is None:
             self._text(8, y + TAB_H / 2, "◀  Bu dövüşte hasarı yok", 8, DIM, anchor="w", bold=True)
