@@ -78,6 +78,20 @@ bitince güncellenir). Bir boss'ta önceki zindanlardaki en iyi DPS'in sağ üst
 görünür; geçersen "▲ Yeni rekor!" yazar. Rekorlar karakter adına göre tutulur. Kayıtlarda
 partidekilerin isimleri de olduğu için paylaşırken dikkat et.
 
+**Takılma sensörü (lag):** Sunucu normalde saniyede ~15 kez veri gönderir. Yarım saniye ya da
+daha uzun veri gelmezse (oyunda "herkes durdu, ben yürüyorum" hissi) başlıkta kırmızı
+"⚠ Takılma" uyarısı çıkar ve `hakari.log`'a sebebiyle yazılır. Sağ tık → **Bağlantı
+(takılmalar)**'da son takılmalar ve türleri görünür; uyarı oradan kapatılabilir.
+
+| Tür | Anlamı |
+|---|---|
+| sunucu takıldı | Bağlantı ayakta (sunucu senin paketlerini onaylıyor) ama oyun verisi göndermiyor: sunucu tarafı, senin elinde değil |
+| paket kaybı | Paket yolda kayboldu ve yeniden gönderildi: modem, kablo, internet sağlayıcısı |
+| hat sessiz | Hiç paket gelmedi, kayıp da yok: sunucu ya da hatta gecikme |
+
+Sensör sadece zaten okunan paketlerin zamanına bakar; hiçbir şey göndermez (ping bile atmaz).
+"Hakari yetişemedi, paket atlandı" satırı görürsen o andaki "paket kaybı" Hakari'nin kendisidir.
+
 Dövüş dışında pencere soluklaşır; fare üstüne gelince netleşir.
 Arka plan rengi sağ tık → **Arka plan rengi**'nden seçilir: Koyu gri, Siyah, Antrasit, Lacivert,
 Mor, Koyu yeşil, Bordo.

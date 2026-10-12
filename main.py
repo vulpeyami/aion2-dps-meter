@@ -18,6 +18,7 @@ import threading
 import time
 
 from aion2meter.capture import DUMP_MAGIC, LiveCapture, Pipeline, replay_dump
+from aion2meter.lag import LagMonitor
 from aion2meter.meter import SCOPE_TOTAL, Meter
 from aion2meter.protocol import PacketParser
 
@@ -75,7 +76,7 @@ def build(meter: Meter, dump_file=None):
 
     parser = PacketParser(meter.add_hit, on_self, meter.set_identity, on_group, meter.set_npc,
                           on_self_entity)
-    return parser, Pipeline(parser, dump_file)
+    return parser, Pipeline(parser, dump_file, LagMonitor(log))
 
 
 def run_replay(path: str, self_name: str | None) -> None:
@@ -85,6 +86,9 @@ def run_replay(path: str, self_name: str | None) -> None:
     parser, pipeline = build(meter)
     n = replay_dump(path, pipeline)
     say(f"{n} segment, istatistik: {parser.stats}")
+    say(f"Baglanti: {pipeline.lag.stats()}")
+    for e in pipeline.lag.recent(20):
+        say(f"  takilma {e.describe()}")
     snap = meter.snapshot(max_rows=20, view="herkes")
     say(f"Sure {snap.duration:.0f} sn, karakter: {snap.self_name} ({snap.self_id}), "
           f"bilinen isim {len(meter.names)}, parti {sorted(meter.groups['party'])}")
@@ -193,7 +197,8 @@ def run_live(dump_path: str | None, mode: str) -> None:
     def report() -> None:
         while True:
             time.sleep(15)
-            log(f"segment={pipeline.segments} {parser.stats} durum={capture.status}")
+            log(f"segment={pipeline.segments} {parser.stats} baglanti={pipeline.lag.stats()} "
+                f"durum={capture.status}")
 
     threading.Thread(target=report, daemon=True).start()
 
@@ -205,7 +210,8 @@ def run_live(dump_path: str | None, mode: str) -> None:
     from aion2meter.records import Records
 
     records = Records(os.path.join(APP_DIR, "kayitlar"), log)
-    Overlay(meter, lambda: capture.status, quit_all, settings_path, records, log).run()
+    Overlay(meter, lambda: capture.status, quit_all, settings_path, records, log,
+            pipeline.lag).run()
 
 
 def main() -> None:

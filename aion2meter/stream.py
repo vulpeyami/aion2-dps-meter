@@ -19,11 +19,17 @@ DETECT_WINDOW = 64 * 1024
 
 
 class TcpReassembler:
-    """Sira numarasina gore segmentleri dizer. feed() -> [(veri, bosluk_var_mi)]."""
+    """Sira numarasina gore segmentleri dizer. feed() -> [(veri, bosluk_var_mi)].
+
+    Kayip belirtilerini de sayar: retransmits (daha once gelmis veri tekrar geldi),
+    holes (arada eksik segment var, sonrakiler once geldi).
+    """
 
     def __init__(self):
         self.next_seq: int | None = None
         self.pending: dict[int, bytes] = {}
+        self.retransmits = 0
+        self.holes = 0
 
     def reset(self, seq: int | None = None) -> None:
         self.next_seq = seq
@@ -35,6 +41,7 @@ class TcpReassembler:
             self.next_seq = seq
         diff = (seq - self.next_seq) & SEQ_MASK
         if diff >= 1 << 31:  # eski ya da ortusen segment
+            self.retransmits += 1
             overlap = (self.next_seq - seq) & SEQ_MASK
             if overlap >= len(data):
                 return out
@@ -45,6 +52,10 @@ class TcpReassembler:
             self.next_seq = (self.next_seq + len(data)) & SEQ_MASK
             self._drain(out)
         else:
+            if not self.pending:
+                self.holes += 1
+            elif seq in self.pending:
+                self.retransmits += 1
             self.pending[seq] = data
             if len(self.pending) > MAX_PENDING_SEGMENTS:
                 # Kayip paket geri gelmedi: boslugu atla.

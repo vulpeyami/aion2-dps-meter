@@ -21,6 +21,7 @@ from ctypes import wintypes
 
 import psutil
 
+from .lag import LagMonitor
 from .protocol import PacketParser
 from .stream import StreamDecoder, TcpReassembler
 
@@ -134,9 +135,10 @@ def find_game_endpoints() -> set[tuple[str, int]]:
 class Pipeline:
     """Ham TCP segmentlerini akislara ayirip parser'a verir. Tek thread'den cagrilmali."""
 
-    def __init__(self, parser: PacketParser, dump_file=None):
+    def __init__(self, parser: PacketParser, dump_file=None, lag: LagMonitor | None = None):
         self.parser = parser
         self.dump_file = dump_file
+        self.lag = lag
         self.flows: dict[tuple, tuple[TcpReassembler, StreamDecoder, list]] = {}
         self.segments = 0
         self.last_ts = 0.0  # son paketin yakalanma zamani (replay'de sure hesabi icin)
@@ -159,10 +161,15 @@ class Pipeline:
         reasm, decoder, last_seen = flow
         last_seen[0] = time.monotonic()
         if not data:
+            if self.lag is not None:
+                self.lag.ack(key)
             return
         self.segments += 1
+        losses = (reasm.retransmits, reasm.holes)
         for chunk, gap in reasm.feed(seq, data):
             decoder.feed(chunk, gap)
+        if self.lag is not None:
+            self.lag.feed(key, ts, reasm.retransmits > losses[0], reasm.holes > losses[1])
         self._cleanup()
 
     def _cleanup(self) -> None:
@@ -206,6 +213,7 @@ class _RawSocketBackend:
         self.log = log
         self.ports: frozenset[int] = frozenset()
         self.received = 0
+        self.dropped = 0  # Hakari yetisemedi (kuyruk dolu); oyunun baglantisini etkilemez
         self._sockets: dict[str, threading.Event] = {}
 
     def update(self, endpoints: set[tuple[str, int]]) -> str | None:
@@ -280,7 +288,7 @@ class _RawSocketBackend:
                 try:
                     self.out.put_nowait((time.time(), bytes(view[:n])))
                 except queue.Full:
-                    pass
+                    self.dropped += 1
         finally:
             try:
                 sock.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)
@@ -318,6 +326,7 @@ class _WinDivertBackend:
         self.log = log
         self.wd = _WinDivert(dll_dir)
         self.received = 0
+        self.dropped = 0
         self._ports: set[int] = set()
         self._handle = None
 
@@ -359,7 +368,7 @@ class _WinDivertBackend:
                 try:
                     self.out.put_nowait((time.time(), buf.raw[:got.value]))
                 except queue.Full:
-                    pass
+                    self.dropped += 1
         finally:
             self.wd.close(handle)
 
@@ -390,6 +399,7 @@ class LiveCapture:
     def _watch(self) -> None:
         error = None
         last_count, last_change = 0, time.monotonic()
+        last_dropped = 0
         while not self._stop.is_set():
             try:
                 endpoints = find_game_endpoints()
@@ -410,6 +420,11 @@ class LiveCapture:
                     error = None
                 last_change = time.monotonic()
 
+            if self.backend.dropped != last_dropped:
+                # Bu durumda takilma sensorunun "paket kaybi" demesi Hakari'nin kendi kaybidir.
+                self.log(f"Hakari yetisemedi, {self.backend.dropped - last_dropped} paket atlandi "
+                         "(oyunun baglantisini etkilemez)")
+                last_dropped = self.backend.dropped
             count = self.backend.received
             if count != last_count:
                 last_count, last_change = count, time.monotonic()

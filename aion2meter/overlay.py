@@ -2,6 +2,7 @@
 
 Sol tik + surukle: tasi.  Satira tik: skill dokumu.  Sag tik: menu (satirda: "bu benim").
 Ctrl + fare tekerlegi: boyut.  Ctrl+Shift+H gizle, L kilitle (tiklama gecer), C ozeti kopyala.
+Sunucudan veri kesilirse (takilma) baslikta kisa bir uyari cikar; ayrintilar sag tik -> Baglanti.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import tkinter.font as tkfont
 
 from .meter import (MODE_DEALT, MODE_TAKEN, SCOPE_FIGHT, SCOPE_TOTAL, VIEW_ALL, VIEW_PARTY,
                     VIEW_SELF, Meter, Snapshot)
+from .lag import LagEvent, LagMonitor
 from .records import MIN_RECORD_SEC, Records
 
 # Olculer 96 DPI ve %100 boyut icin; ekran olcegi ve kullanicinin boyut secimiyle carpilir.
@@ -33,6 +35,8 @@ MAX_BOSS_TABS = 3
 FG = "#e8e8e8"
 DIM = "#8a8f98"
 ACCENT = "#f0b43c"
+WARN = "#ff6b5e"
+LAG_ALERT_SEC = 6.0
 # Arka plan temalari: ad, arka plan, sekme/baslik zemini, grafik dolgusu.
 # Hepsi koyu; beyaz yazi ve sinif renkleri her birinde okunur kalir.
 THEMES = {
@@ -128,13 +132,16 @@ def summary_text(snap: Snapshot, mode: str, limit: int = 6) -> str:
 
 class Overlay:
     def __init__(self, meter: Meter, status_fn, on_quit, settings_path: str | None = None,
-                 records: Records | None = None, log=lambda msg: None):
+                 records: Records | None = None, log=lambda msg: None,
+                 lag: LagMonitor | None = None):
         self.meter = meter
         self.status_fn = status_fn
         self.on_quit = on_quit
         self.settings_path = settings_path
         self.records = records
         self.log = log
+        self.lag = lag
+        self._seen_lag: LagEvent | None = None
         settings = load_settings(settings_path)
 
         try:  # yuksek DPI ekranlarda bulanik yazi olmasin
@@ -162,12 +169,13 @@ class Overlay:
         theme = settings.get("theme", "koyu")
         self.theme = theme if theme in THEMES else "koyu"
         self._saved_self_name = settings.get("self_name")
+        self.lag_alert = bool(settings.get("lag_alert", True))
 
         self.detail: int | None = None  # skill dokumu acik olan oyuncu
         self.hidden = False
         self.hover = False
         self._alpha = None
-        self._flash: tuple[str, float] | None = None
+        self._flash: tuple[str, float, str] | None = None
         self._hitboxes: list[tuple[float, float, float, float, object]] = []
         self._row_at: list[tuple[float, float, int, str]] = []
         self._press = None
@@ -217,6 +225,7 @@ class Overlay:
     def _tick(self) -> None:
         try:
             self._handle_hotkeys()
+            self._check_lag()
             snap = self.meter.snapshot(max_rows=MAX_ROWS, view=self.view, scope=self.scope,
                                        mode=self.mode)
             self._snap = snap
@@ -257,7 +266,7 @@ class Overlay:
         data = {"view": self.view, "mode": self.mode,
                 "scope": self.scope if isinstance(self.scope, str) else SCOPE_FIGHT,
                 "scale": self.scale, "opacity": self.opacity, "locked": self.locked,
-                "theme": self.theme,
+                "theme": self.theme, "lag_alert": self.lag_alert,
                 "x": self.root.winfo_x(), "y": self.root.winfo_y(),
                 "self_name": self._saved_self_name}
         try:
@@ -334,8 +343,17 @@ class Overlay:
             self._alpha = alpha
             self.root.attributes("-alpha", alpha)
 
-    def _flash_msg(self, text: str) -> None:
-        self._flash = (text, time.monotonic() + 2.0)
+    def _flash_msg(self, text: str, sec: float = 2.0, color: str = ACCENT) -> None:
+        self._flash = (text, time.monotonic() + sec, color)
+
+    def _check_lag(self) -> None:
+        event = self.lag.last_event() if self.lag else None
+        if event is None or event is self._seen_lag:
+            return
+        self._seen_lag = event
+        if self.lag_alert:
+            self._flash_msg(f"⚠ Takılma: {event.duration:.1f} sn veri gelmedi",
+                            LAG_ALERT_SEC, WARN)
 
     # --- islemler ---
 
@@ -443,6 +461,8 @@ class Overlay:
         for key, (label, *_) in THEMES.items():
             radio(themes, label, "theme", key)
         m.add_cascade(label="Arka plan rengi", menu=themes)
+        if self.lag:
+            m.add_cascade(label="Bağlantı (takılmalar)", menu=self._lag_menu(m))
         m.add_command(label="Kilitle (tıklama oyuna geçer)", accelerator="Ctrl+Shift+L",
                       command=self._toggle_lock)
         m.add_command(label="Özeti kopyala", accelerator="Ctrl+Shift+C", command=self._copy_summary)
@@ -453,6 +473,26 @@ class Overlay:
             m.add_command(label="Kayıt klasörünü aç", command=self._open_records)
         m.add_command(label="Çıkış", command=self._quit)
         m.tk_popup(e.x_root, e.y_root)
+
+    def _lag_menu(self, parent: tk.Menu) -> tk.Menu:
+        menu = tk.Menu(parent, tearoff=0)
+        var = tk.BooleanVar(master=parent, value=self.lag_alert)
+        menu.add_checkbutton(label="Takılma uyarısı göster", variable=var,
+                             command=lambda: self._set("lag_alert", not self.lag_alert))
+        menu.add_separator()
+        stats = self.lag.stats()
+        events = self.lag.recent(10)
+        if not events:
+            menu.add_command(label="Takılma yok ✓", state="disabled")
+        else:
+            menu.add_command(label=f"{stats['takilma']} takılma, en uzun {stats['en_uzun']:.1f} sn",
+                             state="disabled")
+            for e in reversed(events):
+                menu.add_command(label=e.describe(), state="disabled")
+        menu.add_separator()
+        menu.add_command(label=f"Yeniden gönderilen paket: {stats['yeniden_gonderim']}  ·  "
+                               f"delik: {stats['delik']}", state="disabled")
+        return menu
 
     def _open_detail(self, source: int | None) -> None:
         self.detail = source
@@ -516,7 +556,8 @@ class Overlay:
         if self.locked:
             title += "  🔒"
         if self._flash and time.monotonic() < self._flash[1]:
-            self._text(8, 5, self._flash[0], 8, ACCENT, bold=True)
+            self._text(8, 5, self._fit(self._flash[0], WIDTH - 70, 8, True), 8, self._flash[2],
+                       bold=True)
         else:
             self._flash = None
             self._text(8, 5, self._fit(title, WIDTH - 70, 8, True), 8, DIM, bold=True)
