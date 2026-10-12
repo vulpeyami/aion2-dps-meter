@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from .protocol import Hit, class_from_skill
 
 VIEW_SELF, VIEW_PARTY, VIEW_ALL = "ben", "parti", "herkes"
+# Son dovus: idle_reset sonra kendiliginden sifirlanir. Toplam: elle sifirlanana kadar birikir
+# (zindanin tum bosslari); suresi sadece dovusulen zamandir.
+SCOPE_FIGHT, SCOPE_TOTAL = "dovus", "toplam"
 MIN_CLASS_VOTES = 3
 
 
@@ -45,7 +48,8 @@ class Snapshot:
 
 
 class Meter:
-    """Thread-safe. Son vurustan idle_reset saniye sonra yeni vurus yeni karsilasma baslatir."""
+    """Thread-safe. Son vurustan idle_reset saniye sonra yeni vurus yeni karsilasma baslatir;
+    toplam (SCOPE_TOTAL) ise sadece reset() ile sifirlanir."""
 
     def __init__(self, idle_reset: float = 15.0, clock=time.monotonic,
                  self_name_hint: str | None = None):
@@ -64,6 +68,12 @@ class Meter:
         self._reset_locked()
 
     def _reset_locked(self) -> None:
+        self._new_fight_locked()
+        self.total_sources: dict[int, SourceStats] = {}
+        # Biten dovuslerin sureleri toplami.
+        self.past_fight_time = 0.0
+
+    def _new_fight_locked(self) -> None:
         self.sources: dict[int, SourceStats] = {}
         self.first_hit: float | None = None
         self.last_hit: float | None = None
@@ -104,19 +114,24 @@ class Meter:
         cls = class_from_skill(hit.skill)
         with self._lock:
             if self.last_hit is not None and now - self.last_hit > self.idle_reset:
-                self._reset_locked()
+                self.past_fight_time += self._fight_time_locked()
+                self._new_fight_locked()
             if self.first_hit is None:
                 self.first_hit = now
             self.last_hit = now
-            s = self.sources.get(hit.source)
-            if s is None:
-                s = self.sources[hit.source] = SourceStats()
-            s.total += hit.amount
-            s.hits += 1
-            s.crits += hit.crit
-            s.targets.add(hit.target)
+            for sources in (self.sources, self.total_sources):
+                s = sources.get(hit.source)
+                if s is None:
+                    s = sources[hit.source] = SourceStats()
+                s.total += hit.amount
+                s.hits += 1
+                s.crits += hit.crit
+                s.targets.add(hit.target)
             if cls:
                 self.class_votes.setdefault(hit.source, Counter())[cls] += 1
+
+    def _fight_time_locked(self) -> float:
+        return self.last_hit - self.first_hit if self.first_hit is not None else 0.0
 
     def _class_of(self, sid: int) -> str | None:
         if sid in self.known_class:
@@ -132,8 +147,7 @@ class Meter:
         return (sid == self.self_id or sid in self.names or sid in self.known_class
                 or any(sid in g for g in self.groups.values()) or self._class_of(sid) is not None)
 
-    def _select(self, view: str) -> dict[int, SourceStats]:
-        sources = self.sources
+    def _select(self, sources: dict[int, SourceStats], view: str) -> dict[int, SourceStats]:
         if self.self_id is None:
             # Kendimizi secebilmemiz icin oyuncu gibi gorunen herkesi goster.
             players = {sid: s for sid, s in sources.items() if self._is_player(sid)}
@@ -149,16 +163,21 @@ class Meter:
         return {sid: s for sid, s in sources.items()
                 if self._is_player(sid) or s.targets & enemies}
 
-    def snapshot(self, max_rows: int = 8, view: str = VIEW_PARTY) -> Snapshot:
+    def snapshot(self, max_rows: int = 8, view: str = VIEW_PARTY,
+                 scope: str = SCOPE_FIGHT) -> Snapshot:
         now = self.clock()
         with self._lock:
             in_group = bool(self.groups["party"] or self.groups["force"])
             if self.first_hit is None:
                 return Snapshot(0.0, False, self.self_id, self.self_name, None, [], in_group)
             active = now - self.last_hit <= self.idle_reset
-            duration = max(1.0, self.last_hit - self.first_hit)
+            sources = self.total_sources if scope == SCOPE_TOTAL else self.sources
+            fight_time = self._fight_time_locked()
+            if scope == SCOPE_TOTAL:
+                fight_time += self.past_fight_time
+            duration = max(1.0, fight_time)
 
-            candidates = self._select(view)
+            candidates = self._select(sources, view)
             grand = sum(s.total for s in candidates.values()) or 1
             rows = []
             for sid, s in candidates.items():
@@ -168,8 +187,8 @@ class Meter:
                                 s.total / grand, s.crits / s.hits if s.hits else 0.0, is_self))
             rows.sort(key=lambda r: r.total, reverse=True)
             self_row = next((r for r in rows if r.is_self), None)
-            if self_row is None and self.self_id in self.sources:
-                s = self.sources[self.self_id]
+            if self_row is None and self.self_id in sources:
+                s = sources[self.self_id]
                 self_row = Row(self.self_id, self.self_name or "Ben", self._class_of(self.self_id),
                                s.total, s.total / duration, 1.0, s.crits / s.hits if s.hits else 0.0,
                                True)

@@ -10,7 +10,7 @@ import json
 import tkinter as tk
 import tkinter.font as tkfont
 
-from .meter import VIEW_ALL, VIEW_PARTY, VIEW_SELF, Meter, Snapshot
+from .meter import SCOPE_FIGHT, SCOPE_TOTAL, VIEW_ALL, VIEW_PARTY, VIEW_SELF, Meter, Snapshot
 
 # Olculer 96 DPI icin; ekran olcegine gore carpilir.
 WIDTH = 290
@@ -47,6 +47,8 @@ CLASS_NAMES = {
     "cleric": "Cleric", "chanter": "Chanter", "brawler": "Brawler",
 }
 VIEW_LABELS = {VIEW_SELF: "Sadece ben", VIEW_PARTY: "Parti", VIEW_ALL: "Herkes"}
+SCOPE_LABELS = {SCOPE_FIGHT: "Son dövüş", SCOPE_TOTAL: "Zindan toplamı"}
+SCOPE_TITLES = {SCOPE_FIGHT: "", SCOPE_TOTAL: "  ·  Toplam"}
 
 
 def fmt_num(v: float) -> str:
@@ -104,12 +106,18 @@ class Overlay:
 
         view = settings.get("view", VIEW_PARTY)
         self.view = tk.StringVar(value=view if view in VIEW_LABELS else VIEW_PARTY)
+        scope = settings.get("scope", SCOPE_FIGHT)
+        self.scope = tk.StringVar(value=scope if scope in SCOPE_LABELS else SCOPE_FIGHT)
         self.menu = tk.Menu(self.root, tearoff=0)
         for key, label in VIEW_LABELS.items():
             self.menu.add_radiobutton(label=label, value=key, variable=self.view,
                                       command=self._save_settings)
         self.menu.add_separator()
-        self.menu.add_command(label="Sıfırla", command=self.meter.reset)
+        for key, label in SCOPE_LABELS.items():
+            self.menu.add_radiobutton(label=label, value=key, variable=self.scope,
+                                      command=self._save_settings)
+        self.menu.add_separator()
+        self.menu.add_command(label="Sıfırla (yeni zindan)", command=self.meter.reset)
         self.menu.add_command(label="Çıkış", command=self._quit)
 
         self.canvas.bind("<ButtonPress-1>", self._drag_start)
@@ -133,7 +141,7 @@ class Overlay:
     def _save_settings(self) -> None:
         if not self.settings_path:
             return
-        data = {"view": self.view.get(), "x": self.root.winfo_x(), "y": self.root.winfo_y(),
+        data = {"view": self.view.get(), "scope": self.scope.get(), "x": self.root.winfo_x(), "y": self.root.winfo_y(),
                 "self_name": self._saved_self_name}
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
@@ -157,7 +165,8 @@ class Overlay:
 
     def _tick(self) -> None:
         try:
-            snap = self.meter.snapshot(max_rows=MAX_ROWS, view=self.view.get())
+            snap = self.meter.snapshot(max_rows=MAX_ROWS, view=self.view.get(),
+                                       scope=self.scope.get())
             if snap.self_name and snap.self_name != self._saved_self_name:
                 # Karakter adini hatirla: sonraki acilista teleport gerekmeden taninir.
                 self._saved_self_name = snap.self_name
@@ -190,6 +199,7 @@ class Overlay:
         title = f"秤 HAKARI  ·  {VIEW_LABELS[view]}"
         if view == VIEW_PARTY and not snap.in_group:
             title += " (parti yok)"
+        title += SCOPE_TITLES[self.scope.get()]
         self._text(8, 5, title, 8, DIM, bold=True)
         timer = fmt_time(snap.duration) if snap.duration else "--:--"
         self._text(WIDTH - 8, 5, f"{'●' if snap.active else '○'} {timer}", 8,

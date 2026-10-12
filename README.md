@@ -41,10 +41,12 @@ sonra `build.bat` → `dist\Hakari.exe`.
 | Fare | İşlev |
 |---|---|
 | Sol tık + sürükle | Pencereyi taşı |
-| Sağ tık | Görünüm (Sadece ben / Parti / Herkes), sıfırla, çıkış |
+| Sağ tık | Görünüm (Sadece ben / Parti / Herkes), Son dövüş / Zindan toplamı, sıfırla, çıkış |
 | Satıra çift tık | "Bu benim" |
 
 15 saniye hasar gelmezse sayaç durur. Sonraki vuruşta yeni bir karşılaşma başlar.
+
+**Zindan toplamı** modunda hasar bosslar arasında silinmez, "Sıfırla (yeni zindan)" diyene kadar birikir. Süre ve DPS sadece dövüşülen zamana göre hesaplanır, bosslar arası yürüyüş DPS'i düşürmez.
 Görünüm seçimi ve pencere konumu `ayarlar.json`'a kaydedilir.
 
 **İsimler ve sınıflar:** Oyuncu isimleri, oyuncular görüş alanına girdiğinde ve parti/ittifak

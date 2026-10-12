@@ -8,7 +8,7 @@ import lz4.block
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aion2meter.capture import Pipeline, parse_ip_tcp
-from aion2meter.meter import Meter
+from aion2meter.meter import SCOPE_TOTAL, Meter
 from aion2meter.protocol import PacketParser, parse_damage, parse_own_nickname, parse_periodic
 
 
@@ -249,6 +249,22 @@ class MeterTests(unittest.TestCase):
         t[0] = 30
         m.add_hit(parse_damage(damage_payload(500, 9001, 50)))
         self.assertEqual(m.snapshot().self_row.total, 50)
+
+    def test_total_scope_survives_idle_and_counts_only_fight_time(self):
+        t = [0.0]
+        m = Meter(idle_reset=15, clock=lambda: t[0])
+        m.set_self(500)
+        for t[0] in (0, 5, 10):  # 1. boss: 10 sn
+            m.add_hit(parse_damage(damage_payload(500, 9000, 1000)))
+        for t[0] in (100, 110, 120):  # 90 sn yuruyus, 2. boss: 20 sn
+            m.add_hit(parse_damage(damage_payload(500, 9001, 2000)))
+        total = m.snapshot(scope=SCOPE_TOTAL)
+        self.assertEqual(total.self_row.total, 9000)
+        self.assertEqual(total.duration, 30)
+        self.assertAlmostEqual(total.self_row.dps, 300)
+        self.assertEqual(m.snapshot().self_row.total, 6000)
+        m.reset()
+        self.assertIsNone(m.snapshot(scope=SCOPE_TOTAL).self_row)
 
 
 if __name__ == "__main__":
