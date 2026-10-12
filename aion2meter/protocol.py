@@ -6,6 +6,9 @@ ogrenildi. Sadece DPS icin gereken paketler cozulur:
   0x0538  periyodik hasar (DoT)
   0x3336  kendi karakterimiz (id + isim)
   0x4036/0x4136  NPC dogusu/durumu (varlik id -> NPC kodu; boss adi icin)
+  0x4A36/0x4137/0x4237  sadece kendi karakterimiz hakkinda gelen durum paketleri: ilk varint
+          bizim varlik id'miz. 0x3336 her bolge degisiminde gelmedigi icin kim oldugumuzu
+          bunlardan anlariz (iki gercek kayitta da %100 tutarli; Aion2Flow'da yok).
 
 Cerceve (frame) yapisi:
   [varint uzunluk][2 bayt opcode][govde]
@@ -227,6 +230,15 @@ def parse_periodic(p) -> Hit | None:
 
 
 NPC_OPCODES = frozenset({(0x40, 0x36), (0x41, 0x36)})
+SELF_STATE_OPCODES = frozenset({(0x4A, 0x36), (0x41, 0x37), (0x42, 0x37)})
+
+
+def parse_self_state(p) -> int | None:
+    """Kendi karakterimize ait durum paketinden varlik id'si."""
+    if len(p) < 4 or (p[0], p[1]) not in SELF_STATE_OPCODES:
+        return None
+    entity = _Reader(p, 2).varint()
+    return entity if entity and entity > 0 else None
 
 
 def parse_npc_state(p):
@@ -537,12 +549,14 @@ class PacketParser:
                  on_identity: Callable[[int, str | None, str | None], None] | None = None,
                  on_group: Callable[[str, list, bool], None] | None = None,
                  on_npc: Callable[[int, int], None] | None = None,
+                 on_self_entity: Callable[[int], None] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self.on_hit = on_hit
         self.on_self = on_self
         self.on_identity = on_identity or (lambda *a: None)
         self.on_group = on_group or (lambda *a: None)
         self.on_npc = on_npc or (lambda *a: None)
+        self.on_self_entity = on_self_entity or (lambda *a: None)
         self.clock = clock
         self.stats = {"frames": 0, "compressed": 0, "hits": 0, "mirror_dupes": 0,
                       "lz4_errors": 0, "names": 0, "group": 0, "npcs": 0}
@@ -579,6 +593,10 @@ class PacketParser:
             if npc:
                 self.stats["npcs"] += 1
                 self.on_npc(*npc)
+        elif (a, b) in SELF_STATE_OPCODES:
+            entity = parse_self_state(payload)
+            if entity:
+                self.on_self_entity(entity)
         elif (a, b) in GROUP_OPCODES:
             group = parse_group(payload)
             if group:

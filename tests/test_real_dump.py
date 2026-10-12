@@ -1,6 +1,6 @@
 """Gercek oyun kaydiyla regresyon testi.
 
-kayit.bin oyuncu isimleri icerdigi icin repoya konmaz (.gitignore); dosya yoksa test atlanir.
+Kayitlar oyuncu isimleri icerdigi icin repoya konmaz (.gitignore); dosya yoksa test atlanir.
 """
 
 import os
@@ -17,19 +17,53 @@ from aion2meter.meter import VIEW_ALL, Meter
 from aion2meter.protocol import PacketParser, parse_damage
 from test_pipeline import damage_payload, frame, tick
 
-DUMP = os.path.join(ROOT, "kayit.bin")
+# Kayitlar oyuncu isimleri icerdigi icin repoda yok; dosya yoksa ilgili test atlanir.
+DUMP = os.path.join(ROOT, "kayit_2026-10-12_ilk.bin")
+DUNGEON = os.path.join(ROOT, "kayit_2026-10-12_zindan.bin")
 
 
 def replay(path, self_name=None):
     pipeline = None
     meter = Meter(idle_reset=1e9, clock=lambda: pipeline.last_ts, self_name_hint=self_name)
-    parser = PacketParser(meter.add_hit, meter.set_self, meter.set_identity, meter.update_group)
+    parser = PacketParser(meter.add_hit, meter.set_self, meter.set_identity, meter.update_group,
+                          meter.set_npc, meter.set_self_entity)
     pipeline = Pipeline(parser)
     replay_dump(path, pipeline)
     return meter, parser
 
 
-@unittest.skipUnless(os.path.exists(DUMP), "kayit.bin yok")
+@unittest.skipUnless(os.path.exists(DUNGEON), "zindan kaydi yok")
+class RealDungeonTests(unittest.TestCase):
+    def test_self_state_packet_finds_us_long_before_own_nickname(self):
+        # 0x3336 ancak 298. saniyede (isinlanmada) geliyor; 0x4A36 ilk saniyeden kim oldugumuzu
+        # soyluyor ve ikisi ayni id'yi veriyor.
+        pipeline, first = None, {}
+        parser = PacketParser(lambda h: None, lambda i, n: first.setdefault("nick", (pipeline.last_ts, i)),
+                              on_self_entity=lambda e: first.setdefault("state", (pipeline.last_ts, e)))
+        pipeline = Pipeline(parser)
+        replay_dump(DUNGEON, pipeline)
+        self.assertEqual(first["state"][1], first["nick"][1])
+        self.assertGreater(first["nick"][0] - first["state"][0], 200)
+
+    def test_self_found_with_remembered_name(self):
+        meter, parser = replay(DUNGEON, "Vulpecula")
+        snap = meter.snapshot(view=VIEW_ALL)
+        self.assertEqual((snap.self_id, snap.self_name), (2753, "Vulpecula"))
+        self.assertEqual(snap.self_row.cls, "sorcerer")
+        names = {r.name for r in snap.rows}
+        self.assertTrue({"Vulpecula", "Lausan", "Cenk", "MESSINT0", "Cleri"} <= names, names)
+
+    def test_party_view_lists_the_whole_party(self):
+        meter, _ = replay(DUNGEON, "Vulpecula")
+        names = [r.name for r in meter.snapshot(view="parti").rows]
+        self.assertEqual(sorted(names), ["Cenk", "Cleri", "Lausan", "MESSINT0", "Vulpecula"])
+
+    def test_boss_recognized(self):
+        meter, _ = replay(DUNGEON, "Vulpecula")
+        self.assertIn("Divine Auldor", [f.label for f in meter.snapshot().fights])
+
+
+@unittest.skipUnless(os.path.exists(DUMP), "ilk kayit yok")
 class RealDumpTests(unittest.TestCase):
     def test_first_live_capture_2026_10_12(self):
         meter, parser = replay(DUMP, "Vulpecula")

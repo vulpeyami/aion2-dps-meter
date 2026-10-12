@@ -69,7 +69,12 @@ def build(meter: Meter, dump_file=None):
             log(f"{'Parti' if kind == 'party' else 'Ittifak'} listesi: {len(members)} uye")
         meter.update_group(kind, members, full_list)
 
-    parser = PacketParser(meter.add_hit, on_self, meter.set_identity, on_group, meter.set_npc)
+    def on_self_entity(entity: int) -> None:
+        if meter.set_self_entity(entity):
+            log(f"Karakter id'si: {entity} ({meter.self_name or 'isim bilinmiyor'})")
+
+    parser = PacketParser(meter.add_hit, on_self, meter.set_identity, on_group, meter.set_npc,
+                          on_self_entity)
     return parser, Pipeline(parser, dump_file)
 
 

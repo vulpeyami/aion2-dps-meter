@@ -175,6 +175,19 @@ class Meter:
                 self.self_name = self.names.get(player_id)
             self.self_id = player_id
 
+    def set_self_entity(self, entity: int) -> bool:
+        """Isimsiz kimlik: sadece bize gelen durum paketinden varlik id'miz. Ad, bilinen
+        adimizdan (onceki bolge ya da ayarlara kaydedilmis) gelir. Degistiyse True."""
+        with self._lock:
+            if entity == self.self_id:
+                return False
+            self.self_id = entity
+            name = self.names.get(entity) or self.self_name or self.self_name_hint
+            if name:
+                self.self_name = name
+                self.names.setdefault(entity, name)
+            return True
+
     def set_identity(self, entity: int, name: str | None, cls: str | None = None) -> None:
         with self._lock:
             if name:

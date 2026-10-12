@@ -35,11 +35,12 @@ sonra `build.bat` → `dist\Hakari.exe`.
 ## Çalıştırma
 1. Oyunu **pencereli / kenarlıksız tam ekran** moduna al (tam ekran modunda pencere görünmez).
 2. `Baslat.bat`'a çift tıkla ve yönetici iznini onayla.
-3. Karakterin, oyuna girişte veya teleport sonrasında otomatik tanınır. Meter'i oyundan
-   sonra açtıysan ya bir kez teleport ol ya da listede kendi satırına sağ tıklayıp
-   **Bu benim** de. Bu sadece
-   ilk sefer gerekir: karakter adın `ayarlar.json`'a kaydedilir ve sonraki açılışlarda
-   otomatik tanınırsın.
+3. Karakterin otomatik tanınır: oyun sadece sana gönderdiği durum paketlerinde senin
+   kimliğini taşır, Hakari bunu ilk saniyelerde yakalar. Adın ise oyuna girişte ya da
+   teleportta gelir ve `ayarlar.json`'a kaydedilir; o zamana kadar (sadece ilk sefer) satırın
+   adsız görünebilir. İstersen kendi satırına sağ tıklayıp **Bu benim** diyebilirsin.
+   Diğer oyuncuların adları onlar görüş alanına girince ya da bölge değişince gelir; Hakari'yi
+   zindanın ortasında açtıysan bir kez bölge değiştirmek (teleport) adları getirir.
 
 | Fare / tuş | İşlev |
 |---|---|
