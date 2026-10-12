@@ -5,6 +5,7 @@ ogrenildi. Sadece DPS icin gereken paketler cozulur:
   0x0438  dogrudan hasar
   0x0538  periyodik hasar (DoT)
   0x3336  kendi karakterimiz (id + isim)
+  0x4036/0x4136  NPC dogusu/durumu (varlik id -> NPC kodu; boss adi icin)
 
 Cerceve (frame) yapisi:
   [varint uzunluk][2 bayt opcode][govde]
@@ -21,6 +22,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 import lz4.block
+
+from .gamedata import is_npc_code
 
 MAX_FRAME_LEN = 1024 * 1024
 MAX_DECOMPRESSED_LEN = 4 * 1024 * 1024
@@ -221,6 +224,31 @@ def parse_periodic(p) -> Hit | None:
     if r.remaining >= 4:
         skill = max(0, int.from_bytes(p[-4:], "little", signed=True))
     return Hit(source, target, damage, skill, False, True)
+
+
+NPC_OPCODES = frozenset({(0x40, 0x36), (0x41, 0x36)})
+
+
+def parse_npc_state(p):
+    """0x4036/0x4136 govdesi -> (varlik_id, npc_kodu) ya da None.
+
+    Gercek kayitta kod, varlik id'sinden sonraki 3 mod baytinin hemen arkasinda;
+    Aion2Flow bazi duzenlerde 1-2 bayt ileride okuyor, onlari da dener.
+    """
+    if len(p) < 2 or (p[0], p[1]) not in NPC_OPCODES:
+        return None
+    r = _Reader(p, 2)
+    entity = r.varint()
+    if entity is None or entity <= 0:
+        return None
+    for off in (3, 4, 5):
+        start = r.off + off
+        if start + 4 > len(p):
+            break
+        code = int.from_bytes(p[start:start + 4], "little")
+        if is_npc_code(code):
+            return entity, code
+    return None
 
 
 def parse_own_nickname(p):
@@ -508,14 +536,16 @@ class PacketParser:
                  on_self: Callable[[int, str], None],
                  on_identity: Callable[[int, str | None, str | None], None] | None = None,
                  on_group: Callable[[str, list, bool], None] | None = None,
+                 on_npc: Callable[[int, int], None] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self.on_hit = on_hit
         self.on_self = on_self
         self.on_identity = on_identity or (lambda *a: None)
         self.on_group = on_group or (lambda *a: None)
+        self.on_npc = on_npc or (lambda *a: None)
         self.clock = clock
         self.stats = {"frames": 0, "compressed": 0, "hits": 0, "mirror_dupes": 0,
-                      "lz4_errors": 0, "names": 0, "group": 0}
+                      "lz4_errors": 0, "names": 0, "group": 0, "npcs": 0}
         self._recent: dict[bytes, tuple[object, float]] = {}
 
     def handle_frame(self, frame, plen: int, conn, depth: int = 0) -> None:
@@ -544,6 +574,11 @@ class PacketParser:
             self._emit_identity(parse_nickname_048d(payload))
         elif b == 0x94 and a in (0x09, 0x0B):
             self._emit_identity(parse_nickname_0994(payload))
+        elif (a, b) in NPC_OPCODES:
+            npc = parse_npc_state(payload)
+            if npc:
+                self.stats["npcs"] += 1
+                self.on_npc(*npc)
         elif (a, b) in GROUP_OPCODES:
             group = parse_group(payload)
             if group:

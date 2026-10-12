@@ -7,3 +7,5 @@ build/
 dist/
 *.spec
 hakari.log
+# zindan kayitlari (partidekilerin isimlerini icerir)
+kayitlar/

@@ -5,4 +5,5 @@ cd /d "%~dp0"
 if not exist assets\hakari.ico py -3 tools\make_icon.py || exit /b 1
 py -3 -m PyInstaller --noconfirm --clean --onefile --noconsole --uac-admin ^
     --name Hakari --icon assets\hakari.ico --version-file tools\version_info.txt ^
+    --add-data "aion2meter\data;aion2meter\data" ^
     --exclude-module PIL --exclude-module unittest main.py

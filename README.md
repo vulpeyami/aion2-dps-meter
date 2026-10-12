@@ -7,7 +7,8 @@ Oyun içinde ne kadar hasar verdiğini gösteren küçük bir pencere. Oyunun a�
 
 Varsayılan olarak Windows'un kendi ham soketini kullanır, yani **hiçbir sürücü yüklemez**.
 WinDivert sürücüsü sadece `Baslat.bat --mode windivert` ile açıkça istenirse kullanılır.
-Protokol bilgisi [Aion2Flow](https://github.com/cloris-chan/Aion2Flow)'dan (GPL-3.0) alındı.
+Protokol bilgisi ve skill/boss adları [Aion2Flow](https://github.com/cloris-chan/Aion2Flow)'dan
+(GPL-3.0) alındı. Adlar oyunun İngilizce istemcisinden.
 
 ## Exe ile kullanım (Python gerekmez)
 1. `Hakari.exe`'yi istediğin bir klasöre koy ve çift tıkla, yönetici iznini onayla.
@@ -16,7 +17,8 @@ Protokol bilgisi [Aion2Flow](https://github.com/cloris-chan/Aion2Flow)'dan (GPL-
 3. İlk açılışta güvenlik duvarı kuralı eklensin mi diye sorar: **Evet** de. Yoksa Windows
    oyun paketlerini Hakari'ye ulaştırmaz. Kural sadece bu exe içindir; exe'yi başka klasöre
    taşırsan bir kez daha sorar.
-4. Ayarlar (`ayarlar.json`) ve kayıt dosyası (`hakari.log`) exe'nin yanına yazılır.
+4. Ayarlar (`ayarlar.json`), günlük (`hakari.log`) ve zindan kayıtları (`kayitlar\`) exe'nin
+   yanına yazılır.
 
 Bağlantı testi: exe'nin klasöründe bir terminal açıp `Hakari.exe --selftest`.
 Exe'yi kendin derlemek için: `py -3 -m pip install -r requirements.txt pyinstaller pillow`,
@@ -34,20 +36,49 @@ sonra `build.bat` → `dist\Hakari.exe`.
 1. Oyunu **pencereli / kenarlıksız tam ekran** moduna al (tam ekran modunda pencere görünmez).
 2. `Baslat.bat`'a çift tıkla ve yönetici iznini onayla.
 3. Karakterin, oyuna girişte veya teleport sonrasında otomatik tanınır. Meter'i oyundan
-   sonra açtıysan ya bir kez teleport ol ya da listede kendi satırına çift tıkla. Bu sadece
+   sonra açtıysan ya bir kez teleport ol ya da listede kendi satırına sağ tıklayıp
+   **Bu benim** de. Bu sadece
    ilk sefer gerekir: karakter adın `ayarlar.json`'a kaydedilir ve sonraki açılışlarda
    otomatik tanınırsın.
 
-| Fare | İşlev |
+| Fare / tuş | İşlev |
 |---|---|
 | Sol tık + sürükle | Pencereyi taşı |
-| Sağ tık | Görünüm (Sadece ben / Parti / Herkes), Son dövüş / Zindan toplamı, sıfırla, çıkış |
-| Satıra çift tık | "Bu benim" |
+| Satıra tık (ya da büyük DPS rakamına) | O oyuncunun **skill dökümü**; üstteki ◀ çubuğu geri döner |
+| Üstteki sekmeler | **Canlı** dövüş, son 3 **boss**, zindan **Toplam**ı |
+| Sağ tık | Görünüm, verilen/alınan hasar, geçmiş dövüşler, boyut, saydamlık, kilit, sıfırla |
+| Satıra sağ tık | "Bu benim" |
+| Ctrl + fare tekerleği | Boyut (%80–%175) |
+| Ctrl+Shift+H | Gizle / göster |
+| Ctrl+Shift+L | Kilitle: pencere tıklamaları oyuna geçirir, sürüklenmez (🔒). Açmak için tekrar bas |
+| Ctrl+Shift+C | Özeti panoya kopyala; oyun sohbetine kendin yapıştırırsın |
 
-15 saniye hasar gelmezse sayaç durur. Sonraki vuruşta yeni bir karşılaşma başlar.
+Kısayollar Windows'un normal kısayol sistemiyle alınır (klavye kancası yok). Hakari açıkken bu
+tuş kombinasyonları başka programlarda çalışmaz; başka bir program önce aldıysa `hakari.log`'a yazılır.
 
-**Zindan toplamı** modunda hasar bosslar arasında silinmez, "Sıfırla (yeni zindan)" diyene kadar birikir. Süre ve DPS sadece dövüşülen zamana göre hesaplanır, bosslar arası yürüyüş DPS'i düşürmez.
-Görünüm seçimi ve pencere konumu `ayarlar.json`'a kaydedilir.
+**Dövüşler ve bosslar:** 15 saniye hasar gelmezse dövüş biter, sonraki vuruş yeni dövüş açar.
+Bosslar oyun verisinden tanınır ve sekmede adıyla görünür. Boss faz geçişinde (dokunulmazlık)
+hasar 90 saniyeye kadar kesilse de aynı boss'a dönülürse aynı dövüş devam eder.
+Tüm dövüşler sağ tık → **Geçmiş dövüşler**'de.
+
+**Zindan toplamı:** Hasar bosslar arasında silinmez, "Sıfırla (yeni zindan)" diyene kadar
+birikir. Süre ve DPS sadece dövüşülen zamana göre hesaplanır; bosslar arası yürüyüş DPS'i düşürmez.
+
+**Skill dökümü:** Skill adları, toplam hasar, krit oranı ve pay. DoT'lar ayrı satırda "(DoT)"
+olarak görünür; altta en büyük vuruş yazar.
+
+**Alınan hasar:** Sağ tık → Alınan hasar. Partide kimin ne kadar hasar yediğini gösterir.
+
+**Grafik:** Büyük rakamın altında dövüş boyunca DPS'in (5 sn ortalama) seyri; zindan toplamında
+sadece dövüşülen süreler arka arkaya eklenir.
+
+**Kayıtlar ve rekorlar:** Her zindan `kayitlar\TARIH_SAAT.json` dosyasına yazılır (her dövüş
+bitince güncellenir). Bir boss'ta önceki zindanlardaki en iyi DPS'in sağ üstte "Rekor" olarak
+görünür; geçersen "▲ Yeni rekor!" yazar. Rekorlar karakter adına göre tutulur. Kayıtlarda
+partidekilerin isimleri de olduğu için paylaşırken dikkat et.
+
+Dövüş dışında pencere soluklaşır; fare üstüne gelince netleşir.
+Seçimler, boyut, saydamlık ve pencere konumu `ayarlar.json`'a kaydedilir.
 
 **İsimler ve sınıflar:** Oyuncu isimleri, oyuncular görüş alanına girdiğinde ve parti/ittifak
 listesi geldiğinde okunur. Sınıf (çubuk rengi) isim paketinden ya da kullanılan skill'lerden

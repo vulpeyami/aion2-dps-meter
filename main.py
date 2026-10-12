@@ -18,7 +18,7 @@ import threading
 import time
 
 from aion2meter.capture import DUMP_MAGIC, LiveCapture, Pipeline, replay_dump
-from aion2meter.meter import Meter
+from aion2meter.meter import SCOPE_TOTAL, Meter
 from aion2meter.protocol import PacketParser
 
 APP_NAME = "Hakari"
@@ -69,7 +69,7 @@ def build(meter: Meter, dump_file=None):
             log(f"{'Parti' if kind == 'party' else 'Ittifak'} listesi: {len(members)} uye")
         meter.update_group(kind, members, full_list)
 
-    parser = PacketParser(meter.add_hit, on_self, meter.set_identity, on_group)
+    parser = PacketParser(meter.add_hit, on_self, meter.set_identity, on_group, meter.set_npc)
     return parser, Pipeline(parser, dump_file)
 
 
@@ -86,6 +86,15 @@ def run_replay(path: str, self_name: str | None) -> None:
     for r in snap.rows:
         say(f"  {'*' if r.is_self else ' '} {r.name:>14} {r.cls or '?':>12}  toplam {r.total:>12,}  "
               f"dps {r.dps:>10,.0f}  krit %{r.crit_rate * 100:.0f}")
+    say(f"NPC: {len(meter.npc_of)} tanindi.  Dovusler:")
+    for f in snap.fights:
+        say(f"  {'*' if f.boss_name else ' '} {f.label:<30} {f.duration:6.0f} sn")
+    if snap.self_id is not None:
+        me, skills = meter.skill_breakdown(snap.self_id, SCOPE_TOTAL)
+        say(f"{me.name} skilleri:")
+        for sk in skills[:15]:
+            say(f"    {sk.name + (' (DoT)' if sk.periodic else ''):<32} {sk.total:>10,}  "
+                f"%{sk.share * 100:4.1f}  {sk.hits:>4} vurus  krit %{sk.crit_rate * 100:.0f}")
 
 
 def run_selftest() -> tuple[bool, str]:
@@ -188,7 +197,10 @@ def run_live(dump_path: str | None, mode: str) -> None:
         if dump_file:
             dump_file.close()
 
-    Overlay(meter, lambda: capture.status, quit_all, settings_path).run()
+    from aion2meter.records import Records
+
+    records = Records(os.path.join(APP_DIR, "kayitlar"), log)
+    Overlay(meter, lambda: capture.status, quit_all, settings_path, records, log).run()
 
 
 def main() -> None:
